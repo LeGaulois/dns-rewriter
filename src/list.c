@@ -14,7 +14,7 @@ list * list_init(int(*free_data)(void *data),
         int(*compare_data)(void *d1, void *d2)){
     list *l = NULL;
     
-    l = calloc(1, sizeof(element));
+    l = calloc(1, sizeof(list));
     if(l==NULL) return l;
     
     l->size         = 0;
@@ -27,25 +27,27 @@ list * list_init(int(*free_data)(void *data),
 
 
 
-int list_destroy(list *l){
+int list_destroy(list **l){
     int i=0, max;
     
-    max = l->size;
+    max = (*l)->size;
     
     for(i=0;i<max;i++){
-        if(list_lpop(l)==-1){
+        if(list_lpop(*l)==-1){
             return -1;
         }
     }
+    
+    free(*l);
     
     return 0;
 }
 
 
 /*
-Verifie si un element existe deja dans une liste
-on utilise la fonction de comparaison fournie
-lors de l'initialisation de la liste
+* Verifie si un element existe deja dans une liste
+* on utilise la fonction de comparaison fournie
+* lors de l'initialisation de la liste
 */
 int list_element_exist(list *l,void *data){
     /*
@@ -54,7 +56,7 @@ int list_element_exist(list *l,void *data){
     */
     element *actual = NULL;
     
-    if(l->size==0) return 1;
+    if ( l->size==0 ) return 1;
     actual = l->first;
     
     do{
@@ -66,12 +68,12 @@ int list_element_exist(list *l,void *data){
 }
 
 /*
-Pousse une nouvelle data en debut de liste
-Si la data existe deja, elle n'est pas ajoute
-Valeur de retour:
-    * 0 -> OK
-    * -1 -> erreur lors de l'ajout
-    * 1 -> data deja presente
+* Pousse une nouvelle data en debut de liste
+* Si la data existe deja, elle n'est pas ajoute
+* Valeur de retour:
+*    $ 0 -> OK
+*    $ -1 -> erreur lors de l'ajout
+*    $ 1 -> data deja presente
 */
 int list_uniq_lpush(list *l, void *data){
     if(list_element_exist(l,data)==1){
@@ -94,8 +96,14 @@ int list_lpush(list *l, void *data){
     
     if(el==NULL) return -1;
     l->size += 1;
-    el->next= l->first;
-    l->first->previous = el;
+    el->next = l->first;
+    
+    if ( l->first != NULL){
+        l->first->previous = el;    
+    } 
+    else{
+        l->last = el;
+    }
     l->first = el;
     el->data = data;
     
@@ -106,10 +114,17 @@ int list_rpush(list *l, void *data){
     element *el;
     el = element_init();
     
-    if(el==NULL) return -1;
+    if (el==NULL) return -1;
     l->size += 1;
     el->previous = l->last;
-    l->last->next = el;
+    
+    if (l->last !=NULL){
+        l->last->next = el;    
+    }
+    else{
+        l->first = el;
+    }
+    
     l->last = el;
     el->data = data;
     
@@ -118,10 +133,10 @@ int list_rpush(list *l, void *data){
 
 
 /*
-Supprime la data en debut de liste
-    * 0 -> OK
-    * -1 -> erreur lors de la suppresion
-    * 1 -> liste vide
+* Supprime la data en debut de liste
+*    * 0 -> OK
+*    * -1 -> erreur lors de la suppresion
+*    * 1 -> liste vide
 */
 int list_lpop(list *l){
     element *tmp = NULL;
@@ -129,9 +144,10 @@ int list_lpop(list *l){
     if(l->size==0) return 1;
     
     tmp = l->first->next;
-    if( element_destroy(l->first, l->free_data) ==-1) return -1;
+    if( element_destroy(&(l->first), l->free_data) ==-1) return -1;
     l->first = tmp;
-    l->first->previous = NULL;
+    
+    if(l->first != NULL) l->first->previous = NULL;
     return 0;
 }
 
@@ -141,7 +157,7 @@ int list_rpop(list *l){
     if(l->size==0) return 1;
     
     tmp = l->last->previous;
-    if( element_destroy(l->last, l->free_data) ==-1) return -1;
+    if( element_destroy(&(l->last), l->free_data) ==-1) return -1;
     l->last = tmp;
     l->last->next = NULL;
     return 0;
@@ -161,21 +177,21 @@ element* element_init(){
 }
 
 
-int element_destroy(element *el, int(*fct)()){
-    if(el==NULL) return -1;
+int element_destroy(element **el, int(*fct)()){
+    if (*el == NULL) return -1;
     
-    if(el->data!=NULL){
-        if( fct(&(el->data)) < 1) return -1;
+    if ( (*el)->data!=NULL ){
+        if( fct((*el)->data) < 1) return -1;
     }
     
-    if(el->previous != NULL){
-        el->previous->next = el->next;
+    if ( (*el)->previous != NULL ){
+        (*el)->previous->next = (*el)->next;
     }
     
-    if(el->next != NULL){
-        el->next->previous = el->previous;
+    if( (*el)->next != NULL){
+        (*el)->next->previous = (*el)->previous;
     }
-    free(el);
+    free(*el);
     
     return 0;   
 }
@@ -227,6 +243,6 @@ int list_remove_element_byposition(list *l, int position){
         actual = actual->next;
     }
     
-    return element_destroy(actual, l->free_data);
+    return element_destroy(&actual, l->free_data);
 }
 
