@@ -4,6 +4,11 @@
 #include <errno.h>
 #include <string.h>
 #include <limits.h>
+#include <endian.h>
+#include "ntree_binary.h"
+#include "iptools.h"
+#include "tools.h"
+
 
 /** 
  * convert_ipadress_to_binary - convertit une adresse IP
@@ -18,16 +23,14 @@
 int convert_ipadress_to_binary(char *ipaddress, uint32_t *binaryaddr)
 {
     size_t octet_size;
-    int i=0, j=0;
-    long bigoctet;
-    uint32_t octet, bintemp=0;
+    int i=0;
+    unsigned int byte[4]={0};
     char *actuel=NULL, *tmp=NULL;
     
     if ((ipaddress==NULL)||(binaryaddr==NULL)) return -1;
     actuel=ipaddress;
     
     for(i=0; i<4; i++){
-        j=i;
         octet_size = strcspn(actuel, ".");
         
         if ( octet_size>3 ) goto error;
@@ -41,47 +44,31 @@ int convert_ipadress_to_binary(char *ipaddress, uint32_t *binaryaddr)
         actuel = actuel+ octet_size+1;
         
         errno       = 0;
-        bigoctet    = strtol(tmp, NULL, 10);
+        byte[i]  = (unsigned int)(strtol(tmp, NULL, 10));
         
         if ((errno == ERANGE && 
-            (bigoctet == LONG_MAX || bigoctet == LONG_MIN))
-            || (errno != 0 && bigoctet == 0)) 
+            (byte[i] == LONG_MAX || byte[i] == LONG_MIN))
+            || (errno != 0 && byte[i] == 0)) 
         {
             fprintf(stderr, "Erreur de convertion str->int: %s",
                 strerror(errno));
             goto error;
         }
         
-        if ((bigoctet>255)||(bigoctet<0)||((bigoctet==0)&&(i==0))) goto error;
-        free(tmp);
-        
-        octet = (uint32_t)(bigoctet);
-        
-        
-        /* 
-         *A ce niveau là on a octet code sur 32 bits
-         * mais avec une valeur max de 255 (donc codable sur 8 bits)
-         * On veut le concatener avec notre word_ipaddress sur 32 bits
-         * On decale donc succ
-         */
-        while (j<3){
-            octet = octet<<8;
-            j++;
-        } 
-        
-        bintemp = bintemp | octet;  
+        if ((byte[i]>255)||(byte[i]<0)||
+            ((byte[i]==0)&&(i==0))) goto error;
+            
+        free(tmp); 
     }
     
-    *binaryaddr = bintemp;
-    
+    *binaryaddr = (byte[0]<<24)+(byte[1]<<16)+ (byte[2]<<8)+(byte[3]);    
     return 0;
     
     error:
         free(tmp);
-        fprintf(stderr,"Invalide IP adress");
+        fprintf(stderr,"Invalid IP address");
         return -1; 
 }   
-
 
 
 /** 
@@ -101,10 +88,13 @@ int convert_netmask_to_binary(int netmaskcidr, uint32_t *binarynetmask)
     if ((netmaskcidr<0)||(netmaskcidr>32)||(binarynetmask==NULL)){
         return -1;
     }
-     
+
     *binarynetmask = 0;
-    *binarynetmask =~ *binarynetmask;
-    *binarynetmask = *binarynetmask<<(32-netmaskcidr);
+    
+    if(netmaskcidr>0){
+        *binarynetmask =~ *binarynetmask;
+        *binarynetmask = *binarynetmask<<(32-netmaskcidr);
+    }
     
      return 0;
 }  
@@ -125,46 +115,12 @@ uint32_t* get_network_address(uint32_t hostaddr, uint32_t mask){
     uint32_t *network_address = NULL;
     
     network_address = calloc(1, sizeof(uint32_t));
+
     
     if (network_address==NULL) return NULL;
     *network_address = hostaddr & mask;
-    
+
     return network_address; 
-}
-
-
-/**
- * uint32_t_to_char
- * Convertie un entier binaire sur 32 bits en string affichable
- * 
- * @binary_number: nombre binaire sur 32 bits (ex: adresse IPv4)
- *
- * Valeurs de retour:
- * @NULL en cas d'echec
- * @CHARPOINTEUR sinon
- */
-char* uint32_t_to_char(const uint32_t binary_number){
-    char *str_number = NULL;
-    uint32_t mask;
-    int i=0;
-    
-    str_number = calloc(33, sizeof(char));
-    
-    if ( str_number==NULL ) return NULL;
-    
-    mask = 1<<31;
-    
-    for (i=0;i<32;i++){
-        if (binary_number&mask){
-            str_number[i]='1';
-        }
-        else{
-            str_number[i]='0';
-        }
-        mask = mask >>1;
-    }
-    
-    return str_number;  
 }
 
 
@@ -185,12 +141,12 @@ char* uint32_t_to_char(const uint32_t binary_number){
 int get_networkaddress_and_mask_from_char(
     char *ipaddrandmask, uint32_t **netaddr, int **cidr)
 {
-    char *tmp = NULL, *cache = NULL;
+    char *tmp = NULL;
     uint32_t *mask = NULL, *hostaddr = NULL;
-    size_t str_len = 0;
+    size_t size_ipstr = 0, size_maskstr;
     
-    *netaddr=NULL;
-    *cidr=NULL;
+    *netaddr    = NULL;
+    *cidr       = NULL;
     
     mask = calloc(1, sizeof(uint32_t));
     if ( mask==NULL ) return -1;
@@ -201,24 +157,40 @@ int get_networkaddress_and_mask_from_char(
         return -1;
     } 
     
-    cache = ipaddrandmask;
-    str_len = strcspn(cache, "/");
-    tmp = strndup(cache, str_len);
+    /**
+     * On controle la taille de nos différents éléments
+     * @IP: (3*int)*4+(3*.)*3 = 15
+     * @mask: 2*int = 2
+     */
+    size_ipstr = strcspn(ipaddrandmask, "/");
+    size_maskstr = strlen(ipaddrandmask)-size_ipstr-1;
+    if ((size_ipstr>15)||(size_maskstr>2)){
+        goto error;
+    }
     
+    /*
+     * On récupere le string representant uniquement l'adresse IP
+     * et on la convertie en binaire
+     */ 
+    tmp = strndup(ipaddrandmask, size_ipstr);
     if (convert_ipadress_to_binary(tmp, hostaddr)!=0){
         free(tmp);
         goto error;
     };
     
-
     free(tmp);
-    cache = cache+str_len+1;
     
+    /*
+     * On récupere uniquement le masque au format string
+     * puis on le convertit en entier
+     */
+    tmp = ipaddrandmask+size_ipstr+1;
+
     *cidr = calloc(1, sizeof(int));
     if (cidr==NULL) goto error;
     
     errno = 0;
-    **cidr = strtol(cache, NULL, 10);
+    **cidr = strtol(tmp, NULL, 10);
 
     if ((errno == ERANGE && 
         (**cidr == LONG_MAX || **cidr == LONG_MIN))
@@ -228,9 +200,12 @@ int get_networkaddress_and_mask_from_char(
         strerror(errno));
         goto error;
     }
+    
+    
 
     if (convert_netmask_to_binary(**cidr, mask)!=0) goto error;
     *netaddr = get_network_address(*hostaddr, *mask);
+    
     
     
     free(hostaddr);
@@ -238,7 +213,7 @@ int get_networkaddress_and_mask_from_char(
     return 0;
     
     error:
-        free(cidr);
+        free(*cidr);
         free(hostaddr);
         free(mask);
         return -1;
