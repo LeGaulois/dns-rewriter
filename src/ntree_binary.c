@@ -573,6 +573,26 @@ int ntree_root_add_data(ntree_root *root, uint32_t addr,
 }
 
 
+/**
+ * NTREE_ROOT_LOOKUP
+ * Fonction de recherche du LPM (Longest Prefix Match)
+ * dans un arbre binaire à partir d'une adresse.
+ * Ce type de fonction est utilise dans les tables de routage
+ * pour déterminer la route la plus précise pour une adresse
+ * IP de destination.
+ * Cette fonction est donc différente de @NTREE_NODE_GOTO_ADDRESS
+ * qui elle renvoie la position un pointeur sur le noeud
+ * ayant cette adresse.
+ *
+ * Parametres
+ * @root: pointeur sur la racine de l'arbre
+ * @addr: entier sur 32 bits
+ *
+ * Valeur de retour
+ * @PTR: void pointeur sur l'adresse du noeud ayant le plus
+ *       long prefixe en commun avec @addr et dont la data
+ *       n'est pas NULL
+ */
 void* ntree_root_lookup(ntree_root *root, uint32_t addr){
     uint8_t node_number; 
     int i=0, max_iteration, position = 0;
