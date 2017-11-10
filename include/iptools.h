@@ -7,6 +7,7 @@ uint32_t* get_network_address(uint32_t hostaddr, uint32_t mask);
 char* uint32_t_to_char(const uint32_t binary_number);
 int get_networkaddress_and_mask_from_char(
     char *ipaddrandmask, uint32_t **netaddr, int **cidr);
-uint32_t uint32_t_invert(uint32_t addr);
+int root_add_data_from_range_line(ntree_root *root, char line[]);
+void lecture_fd_rangefile(int fd, ntree_root *root);
 
 #endif

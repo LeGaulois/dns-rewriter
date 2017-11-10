@@ -1,146 +1,206 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdarg.h>
+#include <unistd.h>
 #include <time.h>
 #include <string.h>
 #include <openssl/md5.h>
-#include "../include/hash.h"
-#include "../include/list.h"
+#include <errno.h>
+#include "list.h"
+#include "dns_translation.h"
+#include "hash.h"
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <fcntl.h>
 
 
-dns_t* dns_struct_init(){
-    dns_t *dns = NULL;
-    
-    dns = calloc(1, sizeof(dns_t));
-    if(dns==NULL){
-       return dns;
-    }
-    
-    dns->query      = NULL;
-    dns->rewrited   = NULL;
-    dns->query      = calloc(35, sizeof(char));
-    dns->rewrited   = calloc(35, sizeof(char));
-    return dns;
-}
 
-int free_dnsdata(void *dnsdata) 
+/**
+ * HASHTABLE_INIT
+ * Initialise une hashtable. Chaque entree de la hashtable sera une liste
+ * permettant de gérer les éventuelles collisions induite par la fonction
+ * de hashage.
+ *
+ * Paramètres
+ *  @ht: adresse du pointeur sur la hashtable
+ *  @size: taille de la hashtable
+ *  @free_data: pointeur sur la fonction de suppresion des données
+ *              contenues dans la hashtable
+ *  @compare_data: pointeur sur la fonction de comparaison de données
+ *              dans la hashtable
+ *
+ * Valeurs de retour
+ * 0 -> SUCCESS
+ * -1 -> ERREUR
+ */
+int hashtable_init(hashtable **ht, int size, int(*free_data)(void **data),
+        int(*compare_data)(void *d1, void *d2))
 {
-    free(((dns_t*)dnsdata)->query);
-    free(((dns_t*)dnsdata)->rewrited);
-    free(dnsdata);
-
+    *ht = NULL;
+    *ht = malloc(1*sizeof(hashtable) + size*sizeof(list*));
+    
+    if (*ht==NULL) return -1;
+    memset(*ht, 0, 1*sizeof(hashtable) + size*sizeof(list*));
+    (*ht)->nbentries = 0;
+    (*ht)->size = size;
+    (*ht)->free_data = free_data;
+    (*ht)->compare_data = compare_data;
     return 0;
 }
 
-int compare_dnsdata(void *dns1, void *dns2) 
+
+/**
+ * HASHTABLE_FREE
+ * Fonction de suppresion d'une hashtable
+ *
+ * Parametres
+ * @ht: adresse du pointeur sur la structure hashtable
+ *
+ * Valeurs de retour
+ * 0 -> SUCCESS
+ * sinon -> ERROR
+ */
+int hashtable_free(hashtable **ht)
 {
-	if(memcmp((dns_t*)dns1,(dns_t*)dns2,sizeof(dns_t)) == 0) {
-		return 0;
-	}
-	else return 1;
+    int i=0, max, ret=0;
+    
+    if (*ht==NULL) return -1;
+    max = (*ht)->size;
+    
+	for(i=0;i<max;i++){
+	     if (list_destroy( &((*ht)->entries[i]))!= 0) ret = -1;
+    }
+	free(*ht);
+	return ret;
 }
 
 
-dns_t* get_dns_by_query(list **hashtable, char* init_query) 
-{
-   unsigned char *hash_md = NULL;
-   int value_in_hashtable = 0;
-   hash_md = calloc(16,sizeof(char));
-   
-   do_hash(init_query,hash_md);
-   value_in_hashtable = get_val_from_digest(hash_md);
-   
-   list *current_pl=NULL;
-   current_pl = *(hashtable+value_in_hashtable);
-   
-   if((void *)current_pl != NULL) {
-     element *current_elem_inpl = NULL;
-     current_elem_inpl = current_pl->first; 
-
-     do {
-       if(strcmp(((dns_t *)current_elem_inpl->data)->query,init_query) == 0) {
-          return (dns_t *)current_elem_inpl->data;
-       }
-        current_elem_inpl = current_elem_inpl->next;
-     } while (current_elem_inpl != NULL);
-  }
-  else {
-  	return NULL;
-  }
-  free(hash_md);
-}
-
-//on prends un pointeur sur int en entier, donc à l'appel de la fonction on aura juste besoin de l'adrs de la 1ère case du tableau renvoyée par "digest"
-void do_hash(char *str, unsigned char *digest) 
+/**
+ * DO_HASH
+ * Génération d'un hash à partir d'un string
+ * 
+ * Paramètres
+ * @str: string à hasher
+ * @digest: valeur du hash 
+ *
+ * Valeurs de retour
+ * -1 -> ERREUR
+ *  0 -> SUCCESS
+ */
+int do_hash(char *str, unsigned char *digest) 
 {
 	MD5_CTX context;
-	MD5_Init(&context);
-	MD5_Update (&context, str, strlen(str));
-	MD5_Final(digest, &context);
+	
+	if (MD5_Init(&context) != 1) goto error;
+	if (MD5_Update (&context, str, strlen(str)) != 1) goto error;
+	if (MD5_Final(digest, &context) !=1) goto error;
+	return 0;
+	
+	error:
+	    return -1;
 }
 
-int get_val_from_digest(unsigned char *digest)	
+
+/**
+ * GET_HASTABLE_POSITION_FROM_DIGEST
+ *
+ * Retourne la position dans la table de hashage
+ * par rapport à un digest
+ * La valeur de retour sera donc comprise entre 0 et (@ht->size) - 1
+ *
+ * Paramètres
+ * @ht: pointeur sur la table de hashage
+ * @digest: char 
+ * @sizeofhash: taille du hash en octet.
+ *          Par exemple pour un hash en MD5, on mettra
+ *          sizeofhash=5 
+ *
+ * Valeurs de retour
+ * -1 -> ERREUR
+ * position sinon
+ */
+int get_hashtable_position_from_digest(hashtable *ht,
+    unsigned char *digest, int sizeofhash)
 {
+    if((digest==NULL)||(sizeofhash==0)) return -1;
 	int hashsum = 0;
-	for (int i=0;i<16;i++) {
+	
+	for (int i=0;i<sizeofhash;i++) {
 		hashsum += digest[i];
 	}
-	return hashsum % MAX_CASE_HASHTABLE;
+	return hashsum % ht->size;
 }
 
 
-void gen_hash_table(list **hashtable)
-{
- 	//Création des variables
-   char string_raw[64] = ""; 
-   unsigned char *hash_md = NULL;
-   char dns_entry_cfgfile[] = "../dns-rewriter-master/dnsentry.cfg";
-   int value_in_hashtable = 0;
-   hash_md = calloc(16,sizeof(char)); 
-	
-   //Ouverture du fichier
-   FILE* fd = NULL;
-   fd = fopen(dns_entry_cfgfile, "r");
-   if(fd != NULL && hash_md != NULL) {
-     while (fgets(string_raw,64,fd) != NULL) {
-       if (string_raw[0] == '#') {
-         continue;
-       }
-       dns_t *dns_element = dns_struct_init();
-       if( dns_element != NULL) { 
-          sscanf(string_raw,"%s\t%s", dns_element->query,dns_element->rewrited); 
-          do_hash(dns_element->query,hash_md);
-          value_in_hashtable =  get_val_from_digest(hash_md); 
-	      
-          if(*(hashtable + value_in_hashtable) == NULL){
-             list *l = list_init(free_dnsdata,compare_dnsdata);
-             list_lpush(l,dns_element);	      
-             *(hashtable + value_in_hashtable) = l;     
-          }
-          else {
-             list_lpush(*(hashtable + value_in_hashtable),dns_element);
-         }
-      }
-      else printf("DNS STRUCT FAILED");
+/**
+ * HASHTABLE_GET_ELEMENT
+ * Récupére un élément dan sune table de hashage
+ *
+ * @ht: table de hashage
+ * @cible: str a rechercher
+ *
+ * Valeurs de retour
+ * @NULL: la cible n'existe pas dans la table de hashage
+ * @PTR: pointeur sur la data correspondant a la @cible
+ *  
+ */
+void* hashtable_get_element(hashtable *ht, char *cible){
+    unsigned char *digest = NULL;
+    int position;
+    list *l = NULL;
+    element *el = NULL;
+    
+    digest = calloc(MD5_HASH_SIZE, sizeof(char));
+    if(digest==NULL) return NULL;
+    
+    if (do_hash(cible, digest) != 0) return NULL;
+    position = get_hashtable_position_from_digest(ht, digest, MD5_HASH_SIZE);
+    free(digest);
+    
+    if (position ==-1) return NULL;
+    
+    l = ht->entries[position];
+    el = list_get_element_by_data(l, cible);
+    if (el==NULL) return NULL;
+    return el->data;
+}
+
+
+/**
+ * HASHTABLE_ADD_ELEMENT
+ * Ajoute un élémenet à une hashtable
+ * 
+ * Parametres
+ * @ht: pointeur sur la table de hashage
+ * @str: string de recherche
+ * @data: donnée dans la hashtable
+ *
+ * Valeur de retour
+ *  0 -> OK
+ * -1 -> ERREUR
+ *  1 -> DATA deja presente
+ */
+int hashtable_add_element(hashtable *ht, char *str, void *data){
+    unsigned char *digest = NULL;
+    int position;
+    list *l = NULL;
+    
+    digest = calloc(MD5_HASH_SIZE, sizeof(char));
+    if(digest==NULL) return -1;
+    
+    if (do_hash(str, digest) != 0) return -1;
+    position = get_hashtable_position_from_digest(ht, digest, MD5_HASH_SIZE);
+    free(digest);
+    
+    if (position ==-1) return -1;
+    
+    l = ht->entries[position];
+    if (l==NULL){
+        ht->entries[position] = list_init(ht->free_data, ht->compare_data);
+        l = ht->entries[position];
+        if(l==NULL) return -1;
     }
-   }
-   else {
-      fprintf(stderr,"Error in hash.c -gen_hash_table- #3");
-   }
-   //libération de la mémoire
-   free(hash_md);
-   fclose(fd);
-}
-
-
-void free_hashtable (list **hashtable)
-{
-	for(int i=0;i<MAX_CASE_HASHTABLE;i++){
-	   if(hashtable[i] != NULL) {
-	     list_destroy(&hashtable[i]);
-
-    	   }
-    	   free(hashtable[i]);
-    	}
-	free(hashtable);
+    ht->nbentries += 1;
+    
+    return list_uniq_rpush(l, data); 
 }

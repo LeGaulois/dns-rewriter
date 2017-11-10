@@ -10,7 +10,7 @@ Les 2 fonctions correspondent aux fonctions de
 * comparaison de la data contenue dans lelement de la liste
     cette fonction devra renvoyer 0 en cas degalite et 1 sinon
 */
-list * list_init(int(*free_data)(void *data),
+list * list_init(int(*free_data)(void **data),
         int(*compare_data)(void *d1, void *d2)){
     list *l = NULL;
     
@@ -29,6 +29,8 @@ list * list_init(int(*free_data)(void *data),
 
 int list_destroy(list **l){
     int i=0, max;
+    
+    if (*l==NULL) return 0;
     
     max = (*l)->size;
     
@@ -181,7 +183,7 @@ int element_destroy(element **el, int(*fct)()){
     if (*el == NULL) return -1;
     
     if ( (*el)->data!=NULL ){
-        if( fct((*el)->data) < 1) return -1;
+        if( fct(&((*el)->data)) < 1) return -1;
     }
     
     if ( (*el)->previous != NULL ){
@@ -199,7 +201,7 @@ int element_destroy(element **el, int(*fct)()){
 element* list_get_element_by_data(list *l, void *data){
     element *actual = NULL;
     
-    if(l->size==0) return NULL;
+    if((l==NULL)||(l->size==0)) return NULL;
     actual = l->first;
     
     do{

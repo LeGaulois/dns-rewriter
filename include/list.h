@@ -16,11 +16,11 @@ struct list {
     int     size;
     element *first;
     element *last;
-    int     (*free_data)(void *data);
+    int     (*free_data)(void **data);
     int     (*compare_data)(void *d1, void *d2);
 };
 
-list * list_init(int(*free_data)(void *data),int(*compare_data)(void *d1, void *d2));
+list * list_init(int(*free_data)(void **data),int(*compare_data)(void *d1, void *d2));
 int list_destroy(list **l);
 int list_element_exist(list *l,void *data);
 int list_uniq_lpush(list *l, void *data);

@@ -18,7 +18,6 @@
  * @bitstart: position du bit du depart
  * @nbread: nombre de bits à lire
  */
-
 uint8_t get_n_bits_from_uint32t(uint32_t base, int bitstart, int nbread){
     uint8_t return_int=0;
     uint32_t mask=1;
@@ -33,41 +32,6 @@ uint8_t get_n_bits_from_uint32t(uint32_t base, int bitstart, int nbread){
     }
 
     return return_int;
-}
-
-
-int root_add_data_from_range_line(ntree_root *root, char line[]){
-    size_t size_str = 0;
-    char *pop = NULL, *ipaddress = NULL;
-    uint32_t *netaddr=NULL;
-    int ret, *mask=NULL;
-    
-    size_str = strcspn(line,"\t ");
-    pop = strndup(line, size_str);
-    
-    line = line + size_str;
-    size_str = strspn(line, "\t ");
-    line = line + size_str;
-    ipaddress = strndup(line, strlen(line));
-    
-    ret = get_networkaddress_and_mask_from_char(ipaddress, &netaddr, &mask);
-    
-    if ( ret!=0 ){
-        free(pop);
-        free(ipaddress);
-        return -1;
-    }
-    
-    ret = ntree_root_add_data(root, uint32_t_invert(*netaddr), *mask, (void *)pop, strlen(pop)+1);
-    
-    if (ret==-1) free(pop);
-    free(netaddr);
-    netaddr = NULL;
-    free(mask);
-    mask = NULL;
-
-    free(ipaddress);
-    return ret;
 }
 
 
@@ -128,45 +92,3 @@ uint32_t uint32_t_invert(uint32_t addr){
     
     return ret;
 }
-
-
-void lecture_fd_rangefile(int fd, ntree_root *root){
-    char buffer[1024];
-    int i=0, nb=0;
-    static char cache[1024];
-    static int j=0;
-    
-    do{
-        nb = read(fd,(void*)(buffer),1023);
-            
-        if(nb>0){
-            if(nb<1023){
-                buffer[nb]='\0';
-            }
-                       
-            for(i=0; i<nb ;i++){
-                cache[j] = buffer[i];
-                
-                if(cache[j] == '\n'){
-                    cache[j]='\0';
-                    j=0;
-                    
-                    //Comment ou ligne vide
-                    if ((cache[0]=='#')||(cache[0]=='\0')) continue;
-                    root_add_data_from_range_line(root,cache);
-                    continue;
-                }
-                j++;  
-            }
-        }
-        else if(nb==0){
-            break;
-        }
-        else{
-            fprintf(stderr,"\nErreur: %s.\n", strerror(errno));
-            break;
-        }
-        
-    }while(1);
-}
-

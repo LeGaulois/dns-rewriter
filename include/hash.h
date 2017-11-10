@@ -23,9 +23,7 @@ int get_hashtable_position_from_digest(hashtable *ht,
     unsigned char *digest, int sizeofhash);
 void* hashtable_get_element(hashtable *ht, char *cible);
 int hashtable_add_element(hashtable *ht, char *str, void *data);
-int hashtable_complete_from_file(hashtable *ht, char *file);
-int hashtable_add_entry_from_line(hashtable *ht, char line[]);
-void read_dnspopfile(int fd, hashtable *ht);
+
 
 #endif
 

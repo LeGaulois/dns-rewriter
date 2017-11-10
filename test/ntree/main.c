@@ -95,7 +95,7 @@ int main(){
     for (i=0;i<nbcontrol;i++){
         convert_ipadress_to_binary(control[i].ipaddress, test );
         str = (char *)(ntree_root_lookup(root,uint32_t_invert(*test))); 
-        if(strcmp(str, control[i].popdesired)!=0){
+        if((str==NULL)||(strcmp(str, control[i].popdesired)!=0)){
             fprintf(stderr,"[Test failed] recv: %s, desired: %s\n", str, control[i].popdesired);
         }
     }
