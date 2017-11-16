@@ -2,6 +2,9 @@
 #define WORKERS_H_INCLUDED
 
 
+#define MODE_QUERY 0
+#define MODE_RESPONSE 1
+#define MODE_ALL 2
 /*
 * WORKER
 * Structure permettant de stocker toutes les informations
@@ -18,25 +21,32 @@
 * 
 *
 */
-
 typedef struct worker worker;
- 
-struct worker {
-    pid_t           pid;
-    pid_t           ppid;
-    int             nfqueue_id;
-    
+typedef struct stats stats;
+
+struct stats {
     long long       nb_requetes_recues;
     long long       nb_requetes_rewrite;
     long long       nb_requetes_pass;
     long long       nb_requetes_block;
     long long       nb_requetes_silent;
-    
-    list            session_dns_record;
-    int             fd_tree_binary;
-    ntree_binary    root_tree; 
-    int             fd_dns_entry;  
-    list            *dnsentries;
 };
 
+struct worker {
+    pid_t           pid;
+    pid_t           ppid;
+    int             nfqueue_id;
+    unsigned int    running:1;
+    char            *shm_name;
+    
+    struct stats           st;    
+};
+
+
+void worker_main(worker *wk);
+worker* worker_duplicate(worker *wk);
+void worker_configure_signaux(void);
+void worker_gestionnaire_signal(int numero, 
+            siginfo_t *info, void*data);
+void worker_cleanup(void);
 #endif

@@ -10,7 +10,9 @@
 #include <arpa/inet.h>
 #include "tools.h"
 #include "iptools.h"
-
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <fcntl.h>
 
 /**
  * Privates functions
@@ -613,4 +615,35 @@ void* ntree_root_lookup(ntree_root *root, uint32_t addr){
     }
     return parent->data;
     
+}
+
+
+
+ntree_root* ntree_root_init_from_file(char *filename, int (*free_data)(void *data))
+{
+    ntree_root *root=NULL;
+    int fd;
+    
+    if(filename==NULL) return NULL;
+    
+    root = ntree_root_init(2, free_data);    
+    fd = open(filename, O_RDONLY);
+    
+    /*
+     * Peuplement de l'arbre à partir d'un fichier
+     */
+    if(fd<0){
+        fprintf(stderr, "Erreur lors de l'ouverture: \
+             %s. \n", strerror(errno));
+        ntree_root_free(&root);
+        return NULL;
+    }
+    
+    lecture_fd_rangefile(fd, root);
+    
+    if(close(fd)<0){
+        fprintf(stderr, "Erreur lors de la fermeture: %s. \n", strerror(errno));
+    }
+    
+    return root;
 }

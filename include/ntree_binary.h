@@ -74,5 +74,6 @@ ntree_root* ntree_root_init(unsigned int stride,
 int ntree_root_add_data(ntree_root *root, uint32_t addr, int nb_significant_bits, void *data, size_t datasize);
 int ntree_root_free(ntree_root **root);
 void* ntree_root_lookup(ntree_root *root, uint32_t addr);
+ntree_root* ntree_root_init_from_file(char *filename,int (*free_data)(void *data));
 
 #endif

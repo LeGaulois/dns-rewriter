@@ -49,6 +49,32 @@ int hashtable_init(hashtable **ht, int size, int(*free_data)(void **data),
 }
 
 
+
+hashtable* hashtable_init_from_file(int size, int(*free_data)(void **data),
+        int(*compare_data)(void *d1, void *d2), char*filename)
+{
+    hashtable *ht = NULL;
+    int ret;
+    ret = hashtable_init(&ht, 128, &dns_translation_free,
+     &dns_translation_compare_query);
+     
+    if ( ret !=0 ){
+        fprintf(stderr,"Erreur d'allocation de la hashtable\n'");
+        return NULL;
+    }
+    
+    ret = hashtable_complete_from_file(ht, filename);
+    
+    if ( ret !=0){
+        fprintf(stderr,"Erreur d'import du fichier\n");
+        hashtable_free(&ht);
+        return NULL;
+    }   
+    
+    return ht;
+}
+
+
 /**
  * HASHTABLE_FREE
  * Fonction de suppresion d'une hashtable

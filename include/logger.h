@@ -1,6 +1,8 @@
 #ifndef LOGGER_H_INCLUDED
 #define LOGGER_H_INCLUDED
 
+#include <libconfig.h>
+
 typedef FILE *SLOGL_file;
 #define SLOGL_MAXFILEPATH             1024
 

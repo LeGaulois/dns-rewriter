@@ -4,7 +4,7 @@
 #include <libconfig.h>
 #include "logger.h"
 
-int initConfigFile(config_t *cfg, const char *cfgfilename);
-int readConfigFile(config_t *cfg, const char *cfgfilename);
+int configfile_init(config_t *cfg, const char *cfgfilename);
+int configfile_read(config_t *cfg, const char *cfgfilename);
 
 #endif
