@@ -24,12 +24,9 @@ uint8_t get_n_bits_from_uint32t(uint32_t base, int bitstart, int nbread){
     int count = 0;
     
     mask = mask<<(31-bitstart);
-    /*fprintf(stderr,"%s: bs:%d -nbread:%d - base=%s - mask=%s\n",
-    __func__,bitstart, nbread, uint32_t_to_char(base), uint32_t_to_char(mask));*/
     
     while(count<nbread){
         if (base&mask) return_int += pow(2, count);
-        //fprintf(stderr,"\t mask=%s\n", uint32_t_to_char(mask));
         mask = mask >> 1;
         count++;
     }
