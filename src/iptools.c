@@ -180,9 +180,7 @@ int get_networkaddress_and_mask_from_char(
     };
     
     free(tmp);
-    
-    uint32_t addrtest;
-    convert_ipadress_to_binary("127.0.0.1",&addrtest);
+
 
     /*
      * On récupere uniquement le masque au format string
