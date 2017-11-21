@@ -220,8 +220,8 @@ static int ntree_node_delete(ntree_node **node){
 static ntree_node* ntree_node_get_son(ntree_node *parent, uint8_t position){
 
     if(parent==NULL) return NULL;
-    if ( position > pow(2,parent->root->stride)){
-        fprintf(stderr,"Invalid child number\n");
+    if ( position > pow(2,parent->root->stride)-1){
+        fprintf(stderr,"Invalid child number %d\n", position);
         return NULL;
     }
     return parent->child[position]; 
@@ -393,7 +393,6 @@ static ntree_node* ntree_node_goto_address(ntree_root *root,
      * On parcours l'arbre jusqu'à atteindre le bon noeud
      * si un noeud n'existe pas sur le parcours, on le crée
      */
-     
     for (i=0;i<nbnodes;i++){
         node_number = get_n_bits_from_uint32t(address, position, root->stride);
         choice = ntree_node_get_son(parent, node_number);
@@ -552,6 +551,7 @@ int ntree_root_add_data(ntree_root *root, uint32_t addr,
     }
     
     else {
+        
         node_number = get_n_bits_from_uint32t(addr, position, root->stride);
         choice = ntree_node_get_son(parent, node_number);
         
@@ -603,7 +603,6 @@ void* ntree_root_lookup(ntree_root *root, uint32_t addr){
     parent = root->root;
     max_iteration = 32 / root->stride; 
     
-    
     for (i=0;i<max_iteration;i++){
         
         node_number = get_n_bits_from_uint32t(addr, position, root->stride);
@@ -614,7 +613,6 @@ void* ntree_root_lookup(ntree_root *root, uint32_t addr){
         position += root->stride;
     }
     return parent->data;
-    
 }
 
 

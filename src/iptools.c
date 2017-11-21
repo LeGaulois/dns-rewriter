@@ -181,6 +181,9 @@ int get_networkaddress_and_mask_from_char(
     
     free(tmp);
     
+    uint32_t addrtest;
+    convert_ipadress_to_binary("127.0.0.1",&addrtest);
+
     /*
      * On récupere uniquement le masque au format string
      * puis on le convertit en entier
@@ -203,11 +206,10 @@ int get_networkaddress_and_mask_from_char(
     }
     
     
-
+    
     if (convert_netmask_to_binary(**cidr, mask)!=0) goto error;
+    
     *netaddr = get_network_address(*hostaddr, *mask);
-    
-    
     
     free(hostaddr);
     free(mask);
@@ -257,7 +259,7 @@ int root_add_data_from_range_line(ntree_root *root, char line[]){
         return -1;
     }
     
-    ret = ntree_root_add_data(root, uint32_t_invert(*netaddr), *mask, (void *)pop, strlen(pop)+1);
+    ret = ntree_root_add_data(root, *netaddr, *mask, (void *)pop, strlen(pop)+1);
     
     if (ret==-1) free(pop);
     free(netaddr);
