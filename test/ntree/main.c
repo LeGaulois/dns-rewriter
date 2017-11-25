@@ -19,7 +19,7 @@
 /*
  * Variables de tests
  */
-#define nbcontrol 3
+#define nbcontrol 6
 
 struct check {
     char ipaddress[50];
@@ -29,7 +29,10 @@ struct check {
 static struct check control[]= {
     {"192.168.3.67","POP63"},
     {"192.168.9.12","POP666"},
-    {"89.67.12.12","POP102"}
+    {"89.67.12.12","POP102"},
+    {"127.0.0.1","TEST"},
+    {"192.168.10.0","POP70"},
+    {"1.2.3.4","DEFAULT"}
 };
 
 
@@ -82,6 +85,7 @@ int main(){
      * Recherche 1 millions de fois une valeur
      * dans l'arbre
      */
+     
     number=1000000;
     while(number>0){
         convert_ipadress_to_binary("192.168.9.2", test );
@@ -94,9 +98,12 @@ int main(){
      */
     for (i=0;i<nbcontrol;i++){
         convert_ipadress_to_binary(control[i].ipaddress, test );
-        str = (char *)(ntree_root_lookup(root,uint32_t_invert(*test))); 
+        str = (char *)(ntree_root_lookup(root,*test)); 
+        
+        
+        
         if((str==NULL)||(strcmp(str, control[i].popdesired)!=0)){
-            fprintf(stderr,"[Test failed] recv: %s, desired: %s\n", str, control[i].popdesired);
+            fprintf(stderr,"[Test %d failed] recv: %s, desired: %s\n",i, str, control[i].popdesired);
         }
     }
 

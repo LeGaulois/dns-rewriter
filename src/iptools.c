@@ -14,7 +14,7 @@
 /** 
  * convert_ipadress_to_binary - convertit une adresse IP
  * sous forme de char en mot de 4 octets
- * @ipaddress: adresse IPv4
+ * @ipaddress: adresse IPv4 en notation
  * @binaryaddr: pointeur sur un mot de 4 octets
  *
  * Valeur de retour:
@@ -30,6 +30,11 @@ int convert_ipadress_to_binary(char *ipaddress, uint32_t *binaryaddr)
     
     if ((ipaddress==NULL)||(binaryaddr==NULL)) return -1;
     actuel=ipaddress;
+    
+    if(strcmp(ipaddress, "0.0.0.0")==0){
+        *binaryaddr = 0;
+        return 0;
+    }
     
     for(i=0; i<4; i++){
         octet_size = strcspn(actuel, ".");
@@ -191,7 +196,7 @@ int get_networkaddress_and_mask_from_char(
     *cidr = calloc(1, sizeof(int));
     if (cidr==NULL) goto error;
     
-    errno = 0;
+    errno = 0;	
     **cidr = strtol(tmp, NULL, 10);
 
     if ((errno == ERANGE && 
@@ -247,7 +252,8 @@ int root_add_data_from_range_line(ntree_root *root, char line[]){
     line = line + size_str;
     size_str = strspn(line, "\t ");
     line = line + size_str;
-    ipaddress = strndup(line, strlen(line));
+    size_str = strcspn(line, "\t ");
+    ipaddress = strndup(line, size_str);
     
     ret = get_networkaddress_and_mask_from_char(ipaddress, &netaddr, &mask);
     

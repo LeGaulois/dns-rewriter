@@ -444,12 +444,20 @@ static int ntree_node_add_data_onmultiple_child(ntree_node *previous,
     
     root = previous->root;
     nbchoice = nb_significant_bits-position;    
-    max = pow(2,root->stride)-pow(2, root->stride - nbchoice);
+    max = pow(2, root->stride - nbchoice);
     
     fixe= 0;
     cp_addr = addr << position;
     position_in_stride = 0;
-         
+    
+    /**
+     * On determine la valeur min du fils
+     * Par exemple si root->stride = 3, on a au max 8 fils
+     * Si on a seulement 1 bit de fixe on sait que la 
+     * plus petite valeur possible sera 2^2 soit 4
+     * @nbchoice = nombre de bits fixes
+     * @max = nombre iteration possibles
+     */
     for(i=0; i<nbchoice; i++){
         if (cp_addr&1) fixe += pow(2, root->stride-i);
         cp_addr = cp_addr <<1;
@@ -522,7 +530,7 @@ int ntree_root_add_data(ntree_root *root, uint32_t addr,
     int nb_significant_bits, void *data, size_t datasize)
 {
     uint8_t node_number = 0;
-    int position, nbchoice=0, reste;
+    int position = 0, nbchoice=0, reste;
     ntree_node *parent = NULL, *choice=NULL;
     
     
@@ -530,7 +538,7 @@ int ntree_root_add_data(ntree_root *root, uint32_t addr,
     if (reste!=0){
         position = nb_significant_bits-reste;
     }
-    else position = nb_significant_bits - root->stride;
+    else if(nb_significant_bits!=0)position = nb_significant_bits - root->stride;
     
     parent = ntree_node_goto_address(root, addr, position, 1);
     /**
@@ -598,7 +606,7 @@ int ntree_root_add_data(ntree_root *root, uint32_t addr,
 void* ntree_root_lookup(ntree_root *root, uint32_t addr){
     uint8_t node_number; 
     int i=0, max_iteration, position = 0;
-    ntree_node *parent = NULL, *son=NULL;
+    ntree_node *parent = NULL, *son=NULL, *last_no_null=NULL;
     
     parent = root->root;
     max_iteration = 32 / root->stride; 
@@ -608,7 +616,11 @@ void* ntree_root_lookup(ntree_root *root, uint32_t addr){
         node_number = get_n_bits_from_uint32t(addr, position, root->stride);
         son = ntree_node_get_son(parent, node_number);
 
-        if (son==NULL) return parent->data;
+        
+        if (son==NULL){
+            return last_no_null->data;
+        }
+        if(son->data) last_no_null = son;
         parent = son;
         position += root->stride;
     }
