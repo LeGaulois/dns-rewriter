@@ -3,6 +3,7 @@
 #include <unistd.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
+#include <sys/shm.h>
 #include <fcntl.h>
 #include <string.h>
 #include <errno.h>
@@ -15,12 +16,14 @@
 #include "ntree_binary.h"
 #include "hash.h"
 #include "dns_translation.h"
+#include "tools.h"
 
 
 SLOGL_level programLevel = SLOGL_LVL_DEBUG;
 worker **TABWORKERS;
 ntree_root* ROOT;
-hashtable *HASHTABLE;
+hashtable *HASHTABLE_Q;
+hashtable *HASHTABLE_R;
 dispatcher *DISPATCHER;
 
 
@@ -90,10 +93,18 @@ int main(int argc, char *argv[]){
      *    (mini interruption de service si pas de HA)
      */
     ROOT = ntree_root_init_from_file(dp->range_file, &free_datanode);
-    HASHTABLE = hashtable_init_from_file(128,&dns_translation_free,
-     &dns_translation_compare_query ,dp->dnsentry_file);
+    HASHTABLE_Q = hashtable_init_from_file(128,&dns_translation_free,
+     &dns_translation_compare_query ,dp->dnsentry_file, HT_NORMAL_FILE);
     
+    /*
+     * On initialise la HASHTABLE permettant de gérer la correspondance Q-R
+     *
+     * Cette hashtable sera en mémoire partagée
+     */
     
+    HASHTABLE_R = hashtable_init_from_file(128,&dns_translation_free,
+      &dns_translation_compare_query, dp->dnsentry_file, HT_INVERT_FILE);
+
     dispatcher_init_tab_workers(dp);
     DISPATCHER = dp;
     dispatcher_configure_signaux();
@@ -151,11 +162,11 @@ int main(int argc, char *argv[]){
     }
     fprintf(stderr,"Fini\n");
     
-
-    dispatcher_free(&dp,1);
+       dispatcher_free(&dp,1);
     SLOGL_quit();
     ntree_root_free(&ROOT);
-    hashtable_free(&HASHTABLE);
+    hashtable_free(&HASHTABLE_Q);
+    hashtable_free(&HASHTABLE_R);
     return EXIT_SUCCESS;
     
 }
