@@ -6,7 +6,10 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <fcntl.h>
+#include <linux/types.h>
+
 #include "dns_translation.h"
+#include "hash.h"
 
 
 
@@ -117,12 +120,13 @@ int dns_translation_compare_query(void *strquery, void *dns1)
  * Paramètres
  * @ht: pointeur sur la table de hashage
  * @file: fichier à analyser
+ * @type: indique si le fichier doit se lire à l'inverse
  *
  * Valeur de retour
  *  0 -> SUCCESS
  * -1 -> ERREUR
  */
-int hashtable_complete_from_file(hashtable *ht, char *file){
+int hashtable_complete_from_file(hashtable *ht, char *file, uint8_t type){
     int fd;   
     
     fd = open(file, O_RDONLY);
@@ -133,7 +137,7 @@ int hashtable_complete_from_file(hashtable *ht, char *file){
         return -1;
     }
     
-    read_dnspopfile(fd, ht);
+    read_dnspopfile(fd, ht, type);
     
     if(close(fd)<0){
         fprintf(stderr, "Erreur lors de la fermeture: %s. \n", strerror(errno));
@@ -149,12 +153,13 @@ int hashtable_complete_from_file(hashtable *ht, char *file){
  * Paramètres
  * @ht: pointeur sur la table de hashage
  * @line: ligne du fichier
+ * @type: indique si le fichier doit se lire à l'inverse
  *
  * Valeur de retour
  *  0 -> SUCCESS
  * -1 -> ERROR
  */
-int hashtable_add_entry_from_line(hashtable *ht, char line[]){
+int hashtable_add_entry_from_line(hashtable *ht, char line[], uint8_t type){
     size_t size_str = 0;
     dns_t *dns = NULL;
     
@@ -162,12 +167,14 @@ int hashtable_add_entry_from_line(hashtable *ht, char line[]){
     if(dns==NULL) return -1;
     
     size_str = strcspn(line,"\t ");
-    dns->query = strndup(line, size_str);
+    if(type == HT_NORMAL_FILE) dns->query = strndup(line, size_str);
+    if(type == HT_INVERT_FILE) dns->rewrited = strndup(line, size_str);
     
     line = line + size_str;
     size_str = strspn(line, "\t ");
     line = line + size_str;
-    dns->rewrited = strndup(line, strlen(line));
+    if(type == HT_NORMAL_FILE) dns->rewrited = strndup(line, strlen(line));
+    if(type == HT_INVERT_FILE) dns->query = strndup(line, strlen(line));
 
     
     if((dns->query==NULL)||(dns->rewrited==NULL)) return -1;
@@ -179,8 +186,11 @@ int hashtable_add_entry_from_line(hashtable *ht, char line[]){
 /**
  * READ_DNSPOPFILE
  * 
+ * @fd : Descripteur de fichier à ouvrir
+ * @ht: pointeur sur la hashtable à remplir
+ * @type: indique si le fichier doit se lire à l'inverse
  */
-void read_dnspopfile(int fd, hashtable *ht){
+void read_dnspopfile(int fd, hashtable *ht, uint8_t type){
     char buffer[1024];
     int i=0, nb=0;
     static char cache[1024];
@@ -203,7 +213,7 @@ void read_dnspopfile(int fd, hashtable *ht){
                     
                     //Commentaire ou ligne vide
                     if ((cache[0]=='#')||(cache[0]=='\0')) continue;
-                    hashtable_add_entry_from_line(ht,cache);
+                    hashtable_add_entry_from_line(ht,cache,type);
                     continue;
                 }
                 j++;  

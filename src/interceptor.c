@@ -6,23 +6,33 @@
 #include <time.h>
 #include <arpa/inet.h>
 
-#include <libmnl/libmnl.h>
 #include <linux/netfilter.h>
 #include <linux/netfilter/nfnetlink.h>
 
 #include <linux/types.h>
 #include <linux/netfilter/nfnetlink_queue.h>
-
+#include <libmnl/libmnl.h>
 #include <libnetfilter_queue/libnetfilter_queue.h>
 #include <libnetfilter_queue/libnetfilter_queue_ipv4.h>
+#include <libnetfilter_queue/libnetfilter_queue_udp.h>
 #include <linux/ip.h>
+#include <linux/udp.h>
 /* only for NFQA_CT, not needed otherwise: */
 #include <linux/netfilter/nfnetlink_conntrack.h>
 #include <libnetfilter_queue/pktbuff.h>
+
+#include "parser_tools.h"
 #include "interceptor.h"
 #include "logger.h"
+#include "dnsparser.h"
+#include "dnsrewriter.h"
+#include "hash.h"
 
 
+extern ntree_root *ROOT;
+extern hashtable *HASHTABLE_Q;
+extern hashtable *HASHTABLE_R;
+//extern interceptor *INTERCEPTOR;
 interceptor *INTERCEPTOR;
 
 
@@ -40,100 +50,77 @@ de la structure interceptor");
     return itcp;
 }
 
-
 void interceptor_free(interceptor *itcp){
     mnl_socket_close(itcp->nl);
     free(itcp->buf);
     free(itcp);
 }
 
+/*
+static int handle_query(struct pkt_buff *pbuff, dnspacket* p, uint32_t payload_len, unsigned char* payload_data) {
 
+   int i=0; 
+   int result_rewrite=0;
+   do {
+     result_rewrite = rewrite_dns(pbuff,p->queries[i].qname,HASHTABLE_Q,p,REWRITE_Q);
+     fprintf(stderr,"QUERY REWRITING STATUS %d !\n\n",result_rewrite);
+     i++;
+   } while(i<p->nb_queries && result_rewrite == 1);
+    	
+   if(result_rewrite == 1) {	 	
+      set_checksum_to_zero(pbuff);   
+      memcpy(payload_data,pbuff->data,pbuff->len);
+      return result_rewrite;
+   }
+   else return 0;
 
-static struct nlmsghdr *
-nfq_hdr_put(char *buf, int type, uint32_t queue_num)
-{
-	struct nlmsghdr *nlh = mnl_nlmsg_put_header(buf);
-	nlh->nlmsg_type	= (NFNL_SUBSYS_QUEUE << 8) | type;
-	nlh->nlmsg_flags = NLM_F_REQUEST;
-
-	struct nfgenmsg *nfg = mnl_nlmsg_put_extra_header(nlh, sizeof(*nfg));
-	nfg->nfgen_family = AF_UNSPEC;
-	nfg->version = NFNETLINK_V0;
-	nfg->res_id = htons(queue_num);
-
-	return nlh;
 }
 
+*/
+static int handle_dns(struct pkt_buff *pbuff, dnspacket* p, uint32_t payload_len, unsigned char* payload_data, uint8_t type) {
+ 
+   int i=0;
+   int result_rewrite=0;
+   do {
+     if(type == REWRITE_R) result_rewrite = rewrite_dns(pbuff,p->queries[i].qname,HASHTABLE_R,p,REWRITE_R);
+     else if(type == REWRITE_Q) result_rewrite = rewrite_dns(pbuff,p->queries[i].qname,HASHTABLE_Q,p,REWRITE_Q);
+     else return -1;
+     
+     fprintf(stderr,"REPLY REWRITING STATUS %d !\n\n",result_rewrite);
+     i++;
+     
+   } while(i<p->nb_queries && result_rewrite == 1);
+     if(result_rewrite == 1) { 	
+        set_checksum_to_zero(pbuff);
+        memcpy(payload_data,pbuff->data,pbuff->len);
+        return result_rewrite;
+     }
+     else return 0;
+} 
+static int queue_cb(struct nfq_q_handle *qh, struct nfgenmsg *nfmsg, struct nfq_data *nfad, void *data) {
 
-static void
-nfq_send_verdict(interceptor *itcp, int queue_num, uint32_t id)
-{
-	char buf[MNL_SOCKET_BUFFER_SIZE];
-	struct nlmsghdr *nlh;
-	struct nlattr *nest;
 
-	nlh = nfq_hdr_put(buf, NFQNL_MSG_VERDICT, queue_num);
-	nfq_nlmsg_verdict_put(nlh, id, NF_ACCEPT);
-
-	/* example to set the connmark. First, start NFQA_CT section: */
-	nest = mnl_attr_nest_start(nlh, NFQA_CT);
-
-	/* then, add the connmark attribute: */
-	mnl_attr_put_u32(nlh, CTA_MARK, htonl(42));
-	/* more conntrack attributes, e.g. CTA_LABEL, could be set here */
-
-	/* end conntrack section */
-	mnl_attr_nest_end(nlh, nest);
-
-	if (mnl_socket_sendto(itcp->nl, nlh, nlh->nlmsg_len) < 0) {
-		perror("mnl_socket_send");
-		exit(EXIT_FAILURE);
-	}
-}
-
-static int queue_cb(const struct nlmsghdr *nlh, void *data)
-{
-	struct nfqnl_msg_packet_hdr *ph = NULL;
-	struct nlattr *attr[NFQA_MAX+1] = {};
-	uint32_t id = 0, skbinfo;
-	struct nfgenmsg *nfg;
-	uint16_t plen;
-	interceptor *itcp = NULL;
+	if(!nfad) return NULL;
 	
-    itcp = (interceptor*)(data);
-
-	if (nfq_nlmsg_parse(nlh, attr) < 0) {
-		perror("problems parsing");
-		return MNL_CB_ERROR;
-	}
-
-	nfg = mnl_nlmsg_get_payload(nlh);
-
-	if (attr[NFQA_PACKET_HDR] == NULL) {
-		fputs("metaheader not set\n", stderr);
-		return MNL_CB_ERROR;
-	}
-
-	ph = mnl_attr_get_payload(attr[NFQA_PACKET_HDR]);
-
-	plen = mnl_attr_get_payload_len(attr[NFQA_PAYLOAD]);
-	void *payload = mnl_attr_get_payload(attr[NFQA_PAYLOAD]);
-
-	skbinfo = attr[NFQA_SKB_INFO] ? ntohl(mnl_attr_get_u32(attr[NFQA_SKB_INFO])) : 0;
-
-	if (attr[NFQA_CAP_LEN]) {
-		uint32_t orig_len = ntohl(mnl_attr_get_u32(attr[NFQA_CAP_LEN]));
-		if (orig_len != plen)
-			printf("truncated ");
-	}
-
-	if (skbinfo & NFQA_SKB_GSO)
-		printf("GSO ");
-
-	id = ntohl(ph->packet_id);
-	
+	struct nfqnl_msg_packet_hdr *ph;
 	struct pkt_buff *pbuff = NULL;
-	pbuff = pktb_alloc(AF_INET, payload, plen, 0);
+	unsigned char* payload_data = NULL;
+	int id = 0;
+	uint32_t payload_len;
+	int result = 0;
+	
+	printf("entering callback\n");
+ 
+	ph = nfq_get_msg_packet_hdr(nfad);
+	if (ph) {
+		id = ntohl(ph->packet_id);
+		fprintf(stderr,"\n-----------------NOUVEAU PAQUET RECU ! --------------\n hw_protocol=0x%04x hook=%u id=%u \n",
+			ntohs(ph->hw_protocol), ph->hook, id);
+	}
+	
+	payload_len = nfq_get_payload(nfad, &payload_data);
+	//On doit ajouter de la mémoire supplémentaire à l'allocation car le mangle dynamique n'est pas faisable
+	pbuff = pktb_alloc(AF_INET, payload_data, payload_len, 10); 
 	
 	if (pbuff==NULL){
 	    fprintf(stderr,"Erreur de recuperation du payload\n");
@@ -141,139 +128,97 @@ static int queue_cb(const struct nlmsghdr *nlh, void *data)
 	else {
 	    struct iphdr *ip = NULL;
 	    ip = nfq_ip_get_hdr(pbuff);
-	    fprintf(stderr,"TTL:%d - protocol: %d - saddr: %08x\n", ip->ttl, ip->protocol, ip->saddr);
-	    //free(ip);
+	    if(ip == NULL) return NULL;
+	    
+	    
+	    int nbq = get_nb_dnsquery(pbuff);
+	    dnspacket *p = NULL;
+	    p = init_struct_dnspacket(nbq);
+	    int result_parsing = dns_req_parsing(pbuff,p,nbq);
+	    
+	    if(result_parsing == 0) {
+	    	fprintf(stderr,"TransactionID : %s - Flags : %x - NbQ : %d - NbR : %d\n",p->transaction_id, p->flags,p->nb_queries,p->nb_replies);
+	    	affiche_queries(p);
+	    }
+	    
+	    if(p->nb_queries != 0 && p->nb_replies == 0)  {
+	    	//int result = handle_query(pbuff,p,payload_len,payload_data);
+	    	int result = handle_dns(pbuff,p,payload_len,payload_data, REWRITE_Q);
+	    	if(result == 0) nfq_set_verdict(qh,id, NF_ACCEPT,0,0);
+	    	else nfq_set_verdict(qh,id,NF_ACCEPT,payload_len,payload_data);
+     		fprintf(stderr,"PBUFF->LEN : %d \t RESULT VERDICT : %d\n",pbuff->data_len,result);
+	    }
+	    else if(p->nb_queries != 0 && p->nb_replies != 0) {
+	    	//int result = handle_reply(pbuff,p,payload_len,payload_data);
+	    	int result = handle_dns(pbuff,p,payload_len,payload_data, REWRITE_R);
+	    	if(result == 0) nfq_set_verdict(qh,id, NF_ACCEPT,0,0);
+	    	else nfq_set_verdict(qh,id,NF_ACCEPT,payload_len,payload_data);
+     	    }
+	    else {
+	    	//si une réponse sans question..huhul
+	    	//penser aux sloglevel
+	    	return NULL;
+	    }
+	    free(p);
 	    pktb_free(pbuff);
 	}
+	return result;
 	
-	printf("packet received (id=%u hw=0x%04x hook=%u, payload len %u",
-		id, ntohs(ph->hw_protocol), ph->hook, plen);
-
-	/*
-	 * ip/tcp checksums are not yet valid, e.g. due to GRO/GSO.
-	 * The application should behave as if the checksums are correct.
-	 *
-	 * If these packets are later forwarded/sent out, the checksums will
-	 * be corrected by kernel/hardware.
-	 */
-	if (skbinfo & NFQA_SKB_CSUMNOTREADY)
-		printf(", checksum not ready");
-	puts(")");
-
-	nfq_send_verdict(itcp,ntohs(nfg->res_id), id);
-
-	return MNL_CB_OK;
 }
 
 int interceptor_worker(int queue_num)
 {
     interceptor *itcp = NULL;
-	struct nlmsghdr *nlh;
+	//struct nlmsghdr *nlh;
 
     itcp = interceptor_init();
     
+    	struct nfq_handle *h;
+	struct nfq_q_handle *qh;
+	struct nfnl_handle *nh;
+	char buf[4096] __attribute__ ((aligned));
+	int fd;
+	int rv;
+    
     if (itcp==NULL) return -1;
     
-    itcp->sizeof_buf = 0xffff + (MNL_SOCKET_BUFFER_SIZE/2);
+	h = nfq_open();
+	if (!h) {
+		fprintf(stderr, "error during nfq_open()\n");
+		exit(1);
+	}
+
+	printf("unbinding existing nf_queue handler for AF_INET (if any)\n");
+	if (nfq_unbind_pf(h, AF_INET) < 0) {
+		fprintf(stderr, "error during nfq_unbind_pf()\n");
+		exit(1);
+	}
+
+	printf("binding nfnetlink_queue as nf_queue handler for AF_INET\n");
+	if (nfq_bind_pf(h, AF_INET) < 0) {
+		fprintf(stderr, "error during nfq_bind_pf()\n");
+		exit(1);
+	}
+	
+	qh = nfq_create_queue(h, queue_num, &queue_cb, NULL);
+	if (!qh) {
+		fprintf(stderr, "error during nfq_create_queue()\n");
+		exit(1);
+	}
+
+	printf("setting copy_packet mode\n");
+	if (nfq_set_mode(qh, NFQNL_COPY_PACKET, 0xffff) < 0) {
+		fprintf(stderr, "can't set packet_copy mode\n");
+		exit(1);
+	}
+	
+	fd = nfq_fd(h);
+	
+	while ((rv = recv(fd, buf, sizeof(buf), 0)) >= 0) {
+		printf("pkt received\n");
+		nfq_handle_packet(h, buf, rv);
+	}
+
     itcp->queue_cb = queue_cb;
-    
-    
-	itcp->nl = mnl_socket_open(NETLINK_NETFILTER);
-	if (itcp->nl == NULL) {
-		SLOGL_vprint(SLOGL_LVL_ERROR,"Erreur durant l'appel \
-à mnl_socket_open: %s", strerror(errno));
-		return -1;
-	}
-
-	if (mnl_socket_bind(itcp->nl, 0, MNL_SOCKET_AUTOPID) < 0) {
-		SLOGL_vprint(SLOGL_LVL_ERROR,"Erreur durant l'appel \
-à mnl_socket_bind: %s", strerror(errno));
-		return -1;
-	}
-	
-	itcp->portid = mnl_socket_get_portid(itcp->nl);
-
-	itcp->buf = malloc(itcp->sizeof_buf);
-	if (!itcp->buf) {
-		SLOGL_vprint(SLOGL_LVL_ERROR,"Erreur durant l'allocation \
-du buffer de réception: %s", strerror(errno));
-		return -1;
-	}
-
-	/* PF_(UN)BIND is not needed with kernels 3.8 and later */
-	nlh = nfq_hdr_put(itcp->buf, NFQNL_MSG_CONFIG, 0);
-	nfq_nlmsg_cfg_put_cmd(nlh, AF_INET, NFQNL_CFG_CMD_PF_UNBIND);
-
-	if (mnl_socket_sendto(itcp->nl, nlh, nlh->nlmsg_len) < 0) {
-		SLOGL_vprint(SLOGL_LVL_ERROR,"Erreur durant l'appel \
-à mnl_socket_send: %s", strerror(errno));
-		return -1;
-	}
-
-	nlh = nfq_hdr_put(itcp->buf, NFQNL_MSG_CONFIG, 0);
-	nfq_nlmsg_cfg_put_cmd(nlh, AF_INET, NFQNL_CFG_CMD_PF_BIND);
-
-	if (mnl_socket_sendto(itcp->nl, nlh, nlh->nlmsg_len) < 0) {
-		SLOGL_vprint(SLOGL_LVL_ERROR,"Erreur durant l'appel \
-à mnl_socket_send: %s", strerror(errno));
-		return -1;
-	}
-
-	nlh = nfq_hdr_put(itcp->buf, NFQNL_MSG_CONFIG, queue_num);
-	nfq_nlmsg_cfg_put_cmd(nlh, AF_INET, NFQNL_CFG_CMD_BIND);
-
-	if (mnl_socket_sendto(itcp->nl, nlh, nlh->nlmsg_len) < 0) {
-        SLOGL_vprint(SLOGL_LVL_ERROR,"Erreur durant l'appel \
-à mnl_socket_send: %s", strerror(errno));
-		return -1;
-	}
-
-    
-	nlh = nfq_hdr_put(itcp->buf, NFQNL_MSG_CONFIG, queue_num);
-	nfq_nlmsg_cfg_put_params(nlh, NFQNL_COPY_PACKET, 0xffff);
-
-    
-	mnl_attr_put_u32(nlh, NFQA_CFG_FLAGS, htonl(NFQA_CFG_F_GSO));
-	mnl_attr_put_u32(nlh, NFQA_CFG_MASK, htonl(NFQA_CFG_F_GSO));
-
-	if (mnl_socket_sendto(itcp->nl, nlh, nlh->nlmsg_len) < 0) {
-        SLOGL_vprint(SLOGL_LVL_ERROR,"Erreur durant l'appel \
-à mnl_socket_sendto: %s", strerror(errno));
-		return -1;
-	}
-
-	/* ENOBUFS is signalled to userspace when packets were lost
-	 * on kernel side.  In most cases, userspace isn't interested
-	 * in this information, so turn it off.
-	 */
-	 
-	
-	itcp->ret = 1;
-	mnl_socket_setsockopt(itcp->nl, NETLINK_NO_ENOBUFS, &(itcp->ret), sizeof(int));
-
-    INTERCEPTOR = itcp;
-	for (;;) {
-		itcp->ret = mnl_socket_recvfrom(itcp->nl, itcp->buf, 
-		        itcp->sizeof_buf);
-		        
-		if (itcp->ret == -1) {
-			SLOGL_vprint(SLOGL_LVL_ERROR,"Erreur durant l'appel \
-à mnl_socket_recvfrom: %s", strerror(errno));
-		return -1;
-		}
-
-		itcp->ret = mnl_cb_run(itcp->buf, itcp->ret, 0, 
-		    itcp->portid, itcp->queue_cb, itcp);
-		    
-		if (itcp->ret < 0){
-			SLOGL_vprint(SLOGL_LVL_ERROR,"Erreur durant l'appel \
-à mnl_cb_run: %s", strerror(errno));
-		return -1;
-		}
-	}
-
-	mnl_socket_close(itcp->nl);
-	
-
-	return 0;
+    return 0;
 }

@@ -51,7 +51,7 @@ int hashtable_init(hashtable **ht, int size, int(*free_data)(void **data),
 
 
 hashtable* hashtable_init_from_file(int size, int(*free_data)(void **data),
-        int(*compare_data)(void *d1, void *d2), char*filename)
+        int(*compare_data)(void *d1, void *d2), char*filename, uint8_t type)
 {
     hashtable *ht = NULL;
     int ret;
@@ -63,7 +63,7 @@ hashtable* hashtable_init_from_file(int size, int(*free_data)(void **data),
         return NULL;
     }
     
-    ret = hashtable_complete_from_file(ht, filename);
+    ret = hashtable_complete_from_file(ht, filename, type);
     
     if ( ret !=0){
         fprintf(stderr,"Erreur d'import du fichier\n");
@@ -164,13 +164,14 @@ int get_hashtable_position_from_digest(hashtable *ht,
  *
  * @ht: table de hashage
  * @cible: str a rechercher
+ * @cible2: 2nde str a rechercher
  *
  * Valeurs de retour
  * @NULL: la cible n'existe pas dans la table de hashage
  * @PTR: pointeur sur la data correspondant a la @cible
  *  
  */
-void* hashtable_get_element(hashtable *ht, char *cible){
+void* hashtable_get_element(hashtable *ht, char *cible, char *cible2){
     unsigned char *digest = NULL;
     int position;
     list *l = NULL;
@@ -182,11 +183,24 @@ void* hashtable_get_element(hashtable *ht, char *cible){
     if (do_hash(cible, digest) != 0) return NULL;
     position = get_hashtable_position_from_digest(ht, digest, MD5_HASH_SIZE);
     free(digest);
-    
+    fprintf(stderr,"test#hash.c : %d\n", position);
     if (position ==-1) return NULL;
     
     l = ht->entries[position];
-    el = list_get_element_by_data(l, cible);
+    if(!l) fprintf(stderr,"L NULL\n\n");
+    /*
+     * L'utilisation de cible2 permet de diversifier 
+     * les critères de recherche dans la hashtable.
+     * Pour la Hash_Q, on recherchera dans la HT&liste via la query 
+     * Pour la Hash_R, on recherchera dans la HT via le Transaction ID
+     * 				      et dans la liste via la query
+     * 
+     * @cible identifiera toujours le paramètre de HASH.
+     */
+      
+    if(cible2 != NULL) el = list_get_element_by_data(l, cible2);
+    if(cible2 == NULL) el = list_get_element_by_data(l,cible);
+    
     if (el==NULL) return NULL;
     return el->data;
 }
@@ -217,7 +231,7 @@ int hashtable_add_element(hashtable *ht, char *str, void *data){
     if (do_hash(str, digest) != 0) return -1;
     position = get_hashtable_position_from_digest(ht, digest, MD5_HASH_SIZE);
     free(digest);
-    
+  	fprintf(stderr,"POSITION ADD ELEM: %d\n", position);
     if (position ==-1) return -1;
     
     l = ht->entries[position];
