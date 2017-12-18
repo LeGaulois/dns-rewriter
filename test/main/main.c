@@ -143,7 +143,8 @@ int main(int argc, char *argv[]){
     controller_free(&ctrl,1);
     SLOGL_quit();
     ntree_root_free(&ROOT);
-    hashtable_free(&HASHTABLE);
+    hashtable_free(&HASHTABLE_Q);
+    hashtable_free(&HASHTABLE_R);
     return EXIT_SUCCESS;
     
 }

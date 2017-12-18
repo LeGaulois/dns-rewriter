@@ -42,7 +42,7 @@ int main(){
         return EXIT_FAILURE;
     }
     
-    ret = hashtable_complete_from_file(ht, "dnsentry.cfg");
+    ret = hashtable_complete_from_file(ht, "dnsentry.cfg",10);
     
     if ( ret !=0){
         fprintf(stderr,"Erreur d'import du fichier\n");
@@ -58,7 +58,7 @@ int main(){
     
     for (i=0;i<nbcontrol;i++){
         d = (dns_t *)(hashtable_get_element(ht,
-            control[i].initial_query));
+            control[i].initial_query, NULL));
     
         if (d!=NULL){
             if (strcmp(d->rewrited, control[i].query_rewrited)==0){

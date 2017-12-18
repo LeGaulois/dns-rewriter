@@ -50,7 +50,7 @@ dnspacket* init_struct_dnspacket()
 	p->nb_add_reply 	= 0;
 	p->nb_q_rewrited	= 0;
 	p->query.length     = 0;
-    p->query.qname      = NULL;
+    p->query.qname      = calloc(253, sizeof(char));
     p->query.qtype      = 0;
     p->query.qclass     = 0;
 	
@@ -58,12 +58,16 @@ dnspacket* init_struct_dnspacket()
 }
 
 
+/**
+ * DESTROY_DNSPACKET
+ * Détruit une structure dnspacket
+ */
 void destroy_dnspacket(dnspacket* dnsp) {
-    //TODO: FREE skbbuff ?
+    pktb_free(dnsp->skb);
+    free(dnsp->transaction_id);
 	free(dnsp->query.qname);
 	free(dnsp);
 }
-
 
 
 /**
@@ -77,8 +81,8 @@ void destroy_dnspacket(dnspacket* dnsp) {
  */
 int dnspacket_prepare_struct(dnspacket *p)
 {
-	struct iphdr *iph;
-	struct udphdr *udph;
+	struct iphdr *iph   = NULL;
+	struct udphdr *udph = NULL;
 	
 	if(!p){
 	    SLOGL_vprint(SLOGL_LVL_INFO,"[worker %d] \
@@ -86,16 +90,35 @@ La structure dnspacket recu est NULL.",ME->number);
         return -1;
 	}
 	
+	if(!(p->skb)){
+	    SLOGL_vprint(SLOGL_LVL_INFO,"[worker %d] \
+La structure dnspacket recu ne possede pas de skbuff.",ME->number);
+        return -1;
+	}
+	
 	iph = (struct iphdr *)nfq_ip_get_hdr(p->skb);
+	
+	nfq_ip_set_transport_header(p->skb, iph);
 	udph = (struct udphdr *)nfq_udp_get_hdr(p->skb);
 	
+	if(!iph){
+	    SLOGL_vprint(SLOGL_LVL_INFO,"[worker %d] \
+Impossible de récupérer l'entête IP.",ME->number);
+	    return -1;
+	}
+
+	if(!udph){
+	    SLOGL_vprint(SLOGL_LVL_INFO,"[worker %d] \
+Impossible de récupérer l'entête UDP.",ME->number);
+	    return -1;
+	}
+
 	if( (iph->protocol != IPPROTO_UDP) && (udph->dest != 53 )){
 	    SLOGL_vprint(SLOGL_LVL_INFO,"[worker %d] \
 Le paquet reçu n'est pas une transaction DNS.",ME->number);
 	    return -1;
 	}
 	
-	nfq_ip_set_transport_header(p->skb, iph);
 	p->user_data = pktb_transport_header(p->skb) + UDP_HDR_SIZE;
 	
 	if(!p->user_data){
@@ -134,7 +157,6 @@ La structure dnspacket recu est NULL.",ME->number);
 	
 	return 0;
 }
-
 	
 
 /**
@@ -166,7 +188,7 @@ mais pas de réponse.",ME->number);
      * Conversion des requetes en string & remplissage des structures 
 	 */
 	pinit = p->user_data + DNS_FIX_HDR_SIZE;
-	
+
 	while(*(pinit+size_char) != 0x00 && size_char < 253) {
 		nb_char = (int)*(pinit+size_char);
 		
@@ -175,6 +197,7 @@ mais pas de réponse.",ME->number);
 			size_char++;
 		}
 		p->query.qname[size_char] = '.';
+		size_char++;
 	}
 	
 	p->query.qname[size_char]	= '\0';
@@ -183,14 +206,18 @@ mais pas de réponse.",ME->number);
 	p->query.qclass	            = *(pinit + size_char + 4);
 	
 	SLOGL_vprint(SLOGL_LVL_DEBUG,"[worker %d] \
-Réception de la requete DNS: QTYPE=%c QCLASS=%c QUERY=%s.",
+Réception de la requete DNS: QTYPE=%d QCLASS=%d QUERY=%s",
 ME->number, p->query.qtype, p->query.qclass, p->query.qname);
 
 	return 0;
 }
 
 
-
+/**
+ * DNSPACKET_PARSE
+ * Fonction permettant de parser un skbuff 
+ * qui servira à compléter la structure dnspacket
+ */
 int dnspacket_parse(dnspacket *p){
     if ( dnspacket_prepare_struct(p) != 0) goto error;
     if ( dnspacket_parse_header(p) != 0) goto error;

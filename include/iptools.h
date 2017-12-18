@@ -9,5 +9,6 @@ int get_networkaddress_and_mask_from_char(
     char *ipaddrandmask, uint32_t **netaddr, int **cidr);
 int root_add_data_from_range_line(ntree_root *root, char line[]);
 void lecture_fd_rangefile(int fd, ntree_root *root);
+char* convert_u32_ipaddress_tostr(uint32_t be_ipaddr);
 
 #endif

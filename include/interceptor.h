@@ -8,12 +8,8 @@ typedef struct interceptor interceptor;
 
 
 struct interceptor {
-    struct mnl_socket   *nl;
-    char                *buf;    
-    size_t              sizeof_buf;
-    int                 ret;
-    unsigned int        portid; 
-    int                 (*queue_cb)(struct nfq_q_handle *qh,struct nfgenmsg *nfmsg,struct nfq_data *nfad, void *data);   
+    struct nfq_handle   *h;
+	struct nfq_q_handle *qh;  
 };
 
 interceptor* interceptor_init();

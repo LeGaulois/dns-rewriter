@@ -136,12 +136,10 @@ int replace_query(dnspacket *p, char* to_insert, uint8_t type)
 	result = nfq_udp_mangle_ipv4(p->skb,12,p->query.length, 
 	    to_insert, get_len_qfmt(to_insert) );
 	
-	if(result == 1) {
+	if( (result == 1)&&(type == REWRITE_R)){
 	  /*On décale les octets de RAPPEL si c'est une réponse*/
-        if (type == REWRITE_R){
-    	    move_rappel_bytes(p,to_insert);
-    	    return 0;
-        }
+        move_rappel_bytes(p,to_insert);
+        return 0;
 	}
 	return result;
 }
@@ -149,9 +147,17 @@ int replace_query(dnspacket *p, char* to_insert, uint8_t type)
 
 /**
  * REWRITE_DNS
+ * Réécris la requête DNS en fonction de l'adresse IP du client
+ * et du FQDN à résoudre ou bien la réponse renvoyé par 
+ * le resolveur.
+ *
  * hashtable représente ici soit la hashtable_q (qr -> q_rewrited)
  * soit la hashtable_r (transaction_id -> qr)
-*/
+ *
+ * Valeurs de retour
+ * 0 ou 1 -> réécriture effectuée
+ *  -1    -> pas de réécriture
+ */
 int rewrite_dns (dnspacket* packet, unsigned char* query, 
         hashtable* hashtable, uint8_t type)
 {
@@ -168,6 +174,16 @@ int rewrite_dns (dnspacket* packet, unsigned char* query,
 }
 
 
+/**
+ * REWRITE_DNS_RESPONSE
+ * Réécris la réponse DNS renvoyé par le resolveur
+ * en fonction de la réécriture effectuée lors de la query.
+ *
+ * 
+ * Valeurs de retour
+ * 0 ou 1 -> réécriture effectuée
+ *  -1    -> pas de réécriture
+ */
 int rewrite_dns_response(dnspacket* packet, unsigned char* query,
             hashtable* hashtable)
 {
@@ -219,6 +235,14 @@ int rewrite_dns_response(dnspacket* packet, unsigned char* query,
 }
 
 
+/**
+ * REWRITE_DNS_QUERY
+ * Réécris la requête DNS envoyé par le client
+ * 
+ * Valeurs de retour
+ * 0 ou 1 -> réécriture effectuée
+ *  -1    -> pas de réécriture
+ */
 int rewrite_dns_query (dnspacket* packet, unsigned char* query,
             hashtable* hashtable)
 {
@@ -227,6 +251,8 @@ int rewrite_dns_query (dnspacket* packet, unsigned char* query,
 	dns_t *dns_final_elem 	= NULL;
 	char *finalrewrite	    = NULL;
 	char *to_insert		    = NULL;
+	char *ipaddress         = NULL;
+	int ret                 = -1;
 	
 	finalrewrite    = calloc(253,sizeof(char));
 	to_insert	    = calloc(253,sizeof(char));
@@ -242,17 +268,19 @@ int rewrite_dns_query (dnspacket* packet, unsigned char* query,
          return -1;
 	}
 	
+	ipaddress = convert_u32_ipaddress_tostr(iph->daddr);
 	SLOGL_vprint(SLOGL_LVL_INFO,
         "[worker %d, ID %s] l'adresse IP %s appartient au pop %s.",
-         ME->number, packet->transaction_id,
-         uint32_t_to_char(iph->daddr), ntree_finalnode);
+         ME->number, packet->transaction_id, ipaddress, ntree_finalnode);
          
+    free(ipaddress);
 	dns_final_elem = (dns_t*) hashtable_get_element(HASHTABLE_Q, 
 	        (char *)(packet->query.qname),NULL);
+	        
 	
 	if(dns_final_elem) {
 	    SLOGL_vprint(SLOGL_LVL_INFO,
-        "[worker %d, ID:%s] la query %s sera reecrite en  %s.",
+        "[worker %d, ID:%s] la query %s sera reecrite en  %s",
          ME->number, packet->transaction_id,
          packet->query.qname, dns_final_elem->rewrited);
          
@@ -264,13 +292,16 @@ int rewrite_dns_query (dnspacket* packet, unsigned char* query,
         "[worker %d, ID %s] Query réécrite en %s",
          ME->number, packet->transaction_id, finalrewrite);
          
-		return replace_query(packet,to_insert,REWRITE_Q);
+		ret = replace_query(packet,to_insert,REWRITE_Q);
 	}
 	
 	else{
 	    SLOGL_vprint(SLOGL_LVL_INFO,
         "[worker %d, ID %s] Pas de correspondance trouvée pour la query %s",
          ME->number, packet->transaction_id, packet->query.qname);
-         return -1;
+         ret = -1;
 	}
+	free(finalrewrite);
+	free(to_insert);
+	return ret;
 }

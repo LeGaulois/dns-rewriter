@@ -21,6 +21,8 @@
  */
 extern ntree_root *ROOT;
 extern hashtable *HASHTABLE;
+extern hashtable *HASHTABLE_Q;
+extern hashtable *HASHTABLE_R;
 extern interceptor *INTERCEPTOR;
 worker *ME;
 
@@ -168,6 +170,7 @@ void worker_cleanup(void){
     SLOGL_quit();
     
     ntree_root_free(&ROOT);
-    hashtable_free(&HASHTABLE);
+    hashtable_free(&HASHTABLE_Q);
+    hashtable_free(&HASHTABLE_R);
     interceptor_free(INTERCEPTOR);
 }

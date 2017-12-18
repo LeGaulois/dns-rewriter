@@ -183,7 +183,7 @@ void* hashtable_get_element(hashtable *ht, char *cible, char *cible2){
     if (do_hash(cible, digest) != 0) return NULL;
     position = get_hashtable_position_from_digest(ht, digest, MD5_HASH_SIZE);
     free(digest);
-    fprintf(stderr,"test#hash.c : %d\n", position);
+
     if (position ==-1) return NULL;
     
     l = ht->entries[position];

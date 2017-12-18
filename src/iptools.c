@@ -319,3 +319,25 @@ void lecture_fd_rangefile(int fd, ntree_root *root){
         
     }while(1);
 }
+
+
+/**
+ * CONVERT_U32_IPADDRESS_TOSTR
+ * Convertie une adresse IPv4 sous forme d'un entier
+ * de 32 bits en en string
+ */
+char* convert_u32_ipaddress_tostr(uint32_t be_ipaddr)
+{
+    uint8_t octet[4];
+    int i;
+    char *str_ipaddr = NULL;
+    
+    str_ipaddr = calloc(16, sizeof(char));
+    if(!str_ipaddr) return NULL;
+    
+    for(i=0;i<4;i++){
+        octet[i] = be_ipaddr >> (8*i);
+    }
+    snprintf(str_ipaddr,15,"%d.%d.%d.%d", octet[0],octet[1],octet[2],octet[3]);
+    return str_ipaddr;
+}

@@ -5,6 +5,7 @@
 #include <string.h>
 #include <time.h>
 #include <arpa/inet.h>
+#include <signal.h>
 
 #include <linux/netfilter.h>
 #include <linux/netfilter/nfnetlink.h>
@@ -39,6 +40,7 @@ interceptor *INTERCEPTOR;
 extern worker *ME;
 
 
+
 /**
  * INTERCEPTOR_INIT
  * Initialise la structure interceptor.
@@ -67,33 +69,17 @@ de la structure interceptor.", ME->number);
  * Libére la structure interceptor.
  */
 void interceptor_free(interceptor *itcp){
-    mnl_socket_close(itcp->nl);
-    free(itcp->buf);
+    nfq_destroy_queue(itcp->qh);
+    nfq_unbind_pf(itcp->h, AF_INET);
+    nfq_close(itcp->h);
     free(itcp);
 }
 
-/*
-static int handle_query(struct pkt_buff *pbuff, dnspacket* p, uint32_t payload_len, unsigned char* payload_data) {
 
-   int i=0; 
-   int result_rewrite=0;
-   do {
-     result_rewrite = rewrite_dns(pbuff,p->queries[i].qname,HASHTABLE_Q,p,REWRITE_Q);
-     fprintf(stderr,"QUERY REWRITING STATUS %d !\n\n",result_rewrite);
-     i++;
-   } while(i<p->nb_queries && result_rewrite == 1);
-    	
-   if(result_rewrite == 1) {	 	
-      set_checksum_to_zero(pbuff);   
-      memcpy(payload_data,pbuff->data,pbuff->len);
-      return result_rewrite;
-   }
-   else return 0;
-
-}
-*/
-
-
+/**
+ * HANDLE_DNS
+ * Réécris les messages DNS reçus
+ */
 static int handle_dns(dnspacket* p, uint32_t payload_len, unsigned char* payload_data, uint8_t type) 
 { 
    int result_rewrite=0;
@@ -108,8 +94,6 @@ static int handle_dns(dnspacket* p, uint32_t payload_len, unsigned char* payload
     }
      else return -1;
      
-     fprintf(stderr,"REPLY REWRITING STATUS %d !\n\n",result_rewrite);
-     
      if(result_rewrite == 1) { 	
         set_checksum_to_zero(p->skb);
         memcpy(payload_data,p->skb->data,p->skb->len);
@@ -119,7 +103,10 @@ static int handle_dns(dnspacket* p, uint32_t payload_len, unsigned char* payload
 } 
 
 
-
+/**
+ * HANDLE_GETDATA
+ * Récupére les datas reçues dans la NS_QUEUE
+ */
 int handle_getdata(struct nfq_data *nfad, dnspacket **p,
         unsigned char **payload_data)
 {
@@ -136,11 +123,16 @@ Pas de payload reçu.",ME->number);
         return -1;
 	}
 	
+	if(!payload_data){
+	    SLOGL_vprint(SLOGL_LVL_ERROR,"[worker %d] \
+Erreur recuperation du payload.",ME->number);
+	}
+	
 	/**
 	 * On doit ajouter de la mémoire supplémentaire à l'allocation
 	 * car le mangle dynamique n'est pas faisable
 	 */
-	pbuff = pktb_alloc(AF_INET, payload_data, payload_len, 10); 
+	pbuff = pktb_alloc(AF_INET, *payload_data, payload_len, 10); 
 	
 	if (!pbuff){
 	    SLOGL_vprint(SLOGL_LVL_INFO,"[worker %d] \
@@ -156,34 +148,34 @@ Erreur de creation de la structure dnspacket.",ME->number);
         return -1;
 	}
 	
+
 	(*p)->skb = pbuff;
+	
 	return payload_len;
 }
 
 
 /**
- * QUEUE_CB
- * Traitement des paquets recus dans la file netfilter.
+ * HANDLE_PACKET
+ * Traitement du paquet recu dans la file netfilter.
  */
 static int handle_packet(struct nfq_q_handle *qh, struct nfgenmsg *nfmsg, struct nfq_data *nfad, void *data) 
 {
 	if(!nfad) return 0;
 	
 	dnspacket *p = NULL;
-	struct pkt_buff *pbuff = NULL;
 	unsigned char* payload_data = NULL;
 	int id = 0;
 	uint32_t payload_len = 0;
 	int result = 0, result_parsing =0;
 	
-	
     payload_len = handle_getdata(nfad, &p,&payload_data);
-	
+
 	if(payload_len <= 0){
 	    nfq_set_verdict(qh,id, NF_ACCEPT,0,0);
 	    return MNL_CB_OK;
 	}
-	
+
 	result_parsing = dnspacket_parse(p);
 	    
 	if(result_parsing != 0){
@@ -192,7 +184,8 @@ La trame reçu ne sera pas traitée.",ME->number);
         nfq_set_verdict(qh,id, NF_ACCEPT,0,0);
 	    return MNL_CB_OK;
 	}
-	    
+	
+	
 	if(p->nb_queries != 0 && p->nb_replies == 0)  {
 	    result = handle_dns(p,payload_len,payload_data,
 	            REWRITE_Q);
@@ -215,11 +208,10 @@ La trame reçu ne sera pas traitée.",ME->number);
      	}
     }
 	else {
-	    return -1;
+	    result = -1;
 	}
-	free(p);
-	pktb_free(pbuff);
-	
+	destroy_dnspacket(p);
+
 	return result;
 }
 
@@ -240,7 +232,8 @@ int interceptor_worker(int queue_num)
     interceptor *itcp       = NULL;
     struct nfq_handle *h    = NULL;
 	struct nfq_q_handle *qh = NULL;
-
+    sigset_t ensemble_signaux, anciens_signaux;
+    
 	char buf[4096] __attribute__ ((aligned));
 	int fd, rv;
 	
@@ -284,11 +277,21 @@ Erreur lors du poistionnement du mode COPY_PACKET.",ME->number);
 		return -1;
 	}
 	
-	itcp->queue_cb = handle_packet;
 	fd = nfq_fd(h);
+	INTERCEPTOR = itcp;
+	itcp->h     = h;
+	itcp->qh    = qh;
+	sigfillset(&ensemble_signaux);
 	
+	/**
+	 * On reste à l'écoute sur la file
+	 * En cas de nouveau message, on bloque tous
+	 * les signaux afin de ne pas intérrompre la réécriture
+	 */
 	while ((rv = recv(fd, buf, sizeof(buf), 0)) >= 0) {
+	    sigprocmask(SIG_BLOCK, &ensemble_signaux, &anciens_signaux);
 		nfq_handle_packet(h, buf, rv);
+		sigprocmask(SIG_SETMASK, &anciens_signaux, NULL);
 	}
 
     
