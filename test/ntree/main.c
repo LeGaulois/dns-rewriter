@@ -89,7 +89,7 @@ int main(){
     number=1000000;
     while(number>0){
         convert_ipadress_to_binary("192.168.9.2", test );
-        ntree_root_lookup(root,uint32_t_invert(*test));
+        ntree_root_lookup(root,*test);
         number--;
     }
 
@@ -99,8 +99,6 @@ int main(){
     for (i=0;i<nbcontrol;i++){
         convert_ipadress_to_binary(control[i].ipaddress, test );
         str = (char *)(ntree_root_lookup(root,*test)); 
-        
-        
         
         if((str==NULL)||(strcmp(str, control[i].popdesired)!=0)){
             fprintf(stderr,"[Test %d failed] recv: %s, desired: %s\n",i, str, control[i].popdesired);

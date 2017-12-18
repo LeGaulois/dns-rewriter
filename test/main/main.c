@@ -3,28 +3,29 @@
 #include <unistd.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
-#include <sys/shm.h>
 #include <fcntl.h>
 #include <string.h>
 #include <errno.h>
 #include <signal.h>
 #include "logger.h"
 #include "workers.h"
-#include "dispatcher.h"
+#include "controller.h"
 #include <sys/types.h>
 #include <inttypes.h>
 #include "ntree_binary.h"
 #include "hash.h"
 #include "dns_translation.h"
-#include "tools.h"
+#include "gestiondroits.h"
 
 
 SLOGL_level programLevel = SLOGL_LVL_DEBUG;
 worker **TABWORKERS;
 ntree_root* ROOT;
+hashtable *HASHTABLE;
 hashtable *HASHTABLE_Q;
 hashtable *HASHTABLE_R;
-dispatcher *DISPATCHER;
+controller *CONTROLLER;
+extern worker* ME; 
 
 
 int free_datanode(void *data){
@@ -38,14 +39,14 @@ int main(int argc, char *argv[]){
     char *options = "f:h";
     int option;
     int i;
-    pid_t pid;
+    int max = 0;
     worker *wk = NULL;
     
     opterr = 0;
-    struct dispatcher *dp = dispatcher_init();
+    struct controller *ctrl = controller_init();
     
-    if (dp==NULL){
-        fprintf(stderr,"Erreur d'allocation '");
+    if (ctrl==NULL){
+        fprintf(stderr,"Erreur d'allocation du controller");
         return EXIT_FAILURE;
     }
     
@@ -64,109 +65,85 @@ int main(int argc, char *argv[]){
             case 'f':
                 fprintf(stdout,"Chargement du fichier de configuration \
                 %s\n", optarg);
-                free(dp->parameters_file);
-                dp->parameters_file = strndup(optarg, strlen(optarg));
+                free(ctrl->parameters_file);
+                ctrl->parameters_file = strndup(optarg, strlen(optarg));
                 break;
             case '?':
                 fprintf(stderr,"Option %c non prise en charge\n", optopt);
         }
     }
     
-    if(dispatcher_complete_from_file(dp) ==0){
-        SLOGL_vprint(SLOGL_LVL_INFO,"import OK");
+    if(controller_complete_from_file(ctrl) ==0){
+        SLOGL_vprint(SLOGL_LVL_INFO,"[controller] import OK");
     }
     else{
-        SLOGL_vprint(SLOGL_LVL_ERROR,"Erreur durant l'import");
-        dispatcher_free(&dp,1);
+        SLOGL_vprint(SLOGL_LVL_ERROR,"[controller] Erreur durant l'import");
+        controller_free(&ctrl,1);
         SLOGL_quit();
         return EXIT_FAILURE;
     }
     
-    
-    /*
-     * Initialisation des outils statiques 
-     * (arbre binaire + hashtable)
-     * TODO: Procedure de reload
-     * 1) Envoie du signal SIGUSR1 ou SIGUSR2 au dispatcher
-     * 2) Dispatcher supprime les variables globales ROOT et HASHTABLE
-     * 3) On kill chaque worker puis on le recree 
-     *    (mini interruption de service si pas de HA)
+    if(controller_set_securite(ctrl) != 0){
+        controller_free(&ctrl,1);
+        exit(1);
+    }
+
+    /**
+     * On initie:
+     * - la hashtable contenant les règles de réécriture
+     *   DNS
+     * - l'arbre binaire pour la concordance IP client/POP
      */
-    ROOT = ntree_root_init_from_file(dp->range_file, &free_datanode);
-    HASHTABLE_Q = hashtable_init_from_file(128,&dns_translation_free,
-     &dns_translation_compare_query ,dp->dnsentry_file, HT_NORMAL_FILE);
-    
-    /*
-     * On initialise la HASHTABLE permettant de gérer la correspondance Q-R
-     *
-     * Cette hashtable sera en mémoire partagée
-     */
+    ROOT = ntree_root_init_from_file(ctrl->range_file, &free_datanode);
+    HASHTABLE = hashtable_init_from_file(128,&dns_translation_free,
+     &dns_translation_compare_query ,ctrl->dnsentry_file, HT_NORMAL_FILE);
+     
+    HASHTABLE_Q = HASHTABLE;
     
     HASHTABLE_R = hashtable_init_from_file(128,&dns_translation_free,
-      &dns_translation_compare_query, dp->dnsentry_file, HT_INVERT_FILE);
-
-    dispatcher_init_tab_workers(dp);
-    DISPATCHER = dp;
-    dispatcher_configure_signaux();
-    
-    for (i=0; i<dp->nb_workers*2;i++){
-        wk = *(dp->workerstab + i);
-        
-        pid = fork();
-        
-        switch (pid){
-            case 0:
-                wk->pid = getpid();
-                wk->ppid = getppid();
-                
-                /*
-                 * A ce niveau là le fork a reussi (on est un worker)
-                 * On peut donc supprimer la structure DISPATCHER
-                 * (heritée du père).
-                 * On prend garde à ne pas se supprimer soit même
-                 * en se dereferencer de la struct dispatcher
-                 */
-                dispatcher_free_all_worker_except(dp,wk);
-                *(dp->workerstab + i) = NULL;
-                dispatcher_free(&dp,0);
-                DISPATCHER = NULL;
-                
-                /*
-                 * On execute notre boucle de travail qui devra 
-                 * faire un exit(), pas de retour dans le main
-                 */
-                worker_main(wk);
-            case -1:
-                SLOGL_vprint(SLOGL_LVL_ERROR,"Erreur lors du fork: %s",
-                strerror(errno));
-            default:
-                SLOGL_vprint(SLOGL_LVL_INFO,"Creation d'un nouveau worker \
-                pid %d",pid);
-                wk->pid = pid;
-        }
-    }
+&dns_translation_compare_query, ctrl->dnsentry_file, HT_INVERT_FILE);
     
     
-    /*
-     * Boucle Infinie
-     * On attend que tous les fils aient finis leurs jobs 
-     * Aucune utilisation de CPU, on dort jusqu'à la réception d'un signal
-     * à chaque sortie du handler, on verifiera si au moins 1 des workers
-     * est tjrs actif.
-     * TODO: ajouter la gestion
-     *  - des reload de config
-     *  - redemarrage d'un worker en cas d'erreur
+    controller_init_tab_workers(ctrl);
+    CONTROLLER = ctrl;
+    controller_configure_signaux();
+    
+    /**
+     * Variable globale utilisée par chaque worker
      */
-    while(dp->running_worker!=0){
-        pause();
+    ME=NULL;
+    for (i=0; i<ctrl->nb_workers*2;i++){
+        controller_fork_worker(ctrl, i);
     }
-    fprintf(stderr,"Fini\n");
     
-       dispatcher_free(&dp,1);
+    
+    max = ctrl->nb_workers*2;
+    
+    /**
+     * Boucle d'attente passive
+     */
+    while(ctrl->running_worker!=0){
+        pause();
+        
+        /*
+         * On verifie si le signal reçu necessite
+         * le redemarrage de certains workers
+         */
+        for(i=0; i<max;i++){
+            wk = *(ctrl->workerstab+i);
+            
+            if(wk->operation_pending & RESTART_BY_CONTROLLER){
+                controller_restart_worker(CONTROLLER, wk->pid);
+            }
+        }
+        
+    }
+    
+
+    controller_free(&ctrl,1);
     SLOGL_quit();
     ntree_root_free(&ROOT);
-    hashtable_free(&HASHTABLE_Q);
-    hashtable_free(&HASHTABLE_R);
+    hashtable_free(&HASHTABLE);
     return EXIT_SUCCESS;
     
 }

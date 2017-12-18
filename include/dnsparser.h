@@ -23,31 +23,33 @@ typedef struct _DNS_QUERY dnsquery;
 
 
 struct _DNS_QUERY {
-	unsigned int length;
-	unsigned char* qname;
-	unsigned char qtype;
-	unsigned char qclass;
+	unsigned int    length;
+	unsigned char   *qname;
+	unsigned char   qtype;
+	unsigned char   qclass;
 };
 
 struct _DNS_PACKET {
-	struct pkt_buff* skb;
-	unsigned char* transaction_id;
-	uint16_t flags;
-	unsigned int nb_queries;
-	unsigned int nb_replies;
-	unsigned int nb_author_reply;
-	unsigned int nb_add_reply;
-	unsigned int nb_q_rewrited;
+	struct pkt_buff *skb;
+	uint8_t         *user_data;
 	
-	unsigned char **pos_query_in_frame;
-	dnsquery *queries;
+	unsigned char   *transaction_id;
+	uint16_t        flags;
+	unsigned int    nb_queries;
+	unsigned int    nb_replies;
+	unsigned int    nb_author_reply;
+	unsigned int    nb_add_reply;
+	unsigned int    nb_q_rewrited;
+
+	dnsquery        query;
 };
-int get_nb_dnsquery(struct pkt_buff *pbuff);
-void init_dns_query(dnsquery* d);
-dnspacket* init_struct_dnspacket(int nb_queries);
-void destroy_dnsquery(dnsquery* d);
-void destroy_dnspacket(dnspacket* d);
-int dns_req_parsing (struct pkt_buff *sock_buffer, dnspacket *p,int nbq);
-void affiche_queries(dnspacket *p);
+
+
+dnspacket* init_struct_dnspacket();
+void destroy_dnspacket(dnspacket* dnsp);
+int dnspacket_prepare_struct (dnspacket *p);
+int dnspacket_parse_header(dnspacket *p);
+int dnspacket_parse_query(dnspacket *p);
+int dnspacket_parse(dnspacket *p);
 
 #endif

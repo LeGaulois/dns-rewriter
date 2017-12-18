@@ -617,8 +617,9 @@ void* ntree_root_lookup(ntree_root *root, uint32_t addr){
         son = ntree_node_get_son(parent, node_number);
 
         
-        if (son==NULL){
-            return last_no_null->data;
+        if (!son){
+            if(last_no_null) return  last_no_null->data;
+            return NULL;
         }
         if(son->data) last_no_null = son;
         parent = son;

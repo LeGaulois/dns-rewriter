@@ -13,6 +13,7 @@
 #include "dns_translation.h"
 #include "workers.h"
 #include "interceptor.h"
+#include <errno.h>
 
 
 /*
@@ -25,39 +26,46 @@ worker *ME;
 
 
 
+/**
+ * WORKER MAIN
+ * Fonction de travail du worker.
+ * Lors de la fin de la tâche à effectuer, la fonction
+ * doit terminer le processus.
+ */
 void worker_main(worker *wk){
-
+    int ret;
     ME=wk;
-    worker_configure_signaux();
+    
     atexit(worker_cleanup);
+    ret = worker_configure_signaux();
     
+    if(ret!=0){
+        wk->status = ERROR;
+        exit(wk->status);
+    }
     
+    wk->status = OK;
+    wk->operation_pending = RUNNING;
     
-    
-    
-    /*
-     * A supprimer, juste quelques lignes de test 
+    /**
+     * On ferme tous les descripteurs 
+     * de fichier standarts (stderr, stdout, stdin)
      */
-     fprintf(stderr,"Hello, je suis %s avec le pid %d et mon pere est %d, queue id=%d\n",
-    wk->shm_name, wk->pid, wk->ppid, wk->nfqueue_id);
-    wk->st.nb_requetes_recues = 100;
+    close(STDIN_FILENO);
+    close(STDOUT_FILENO);
+    close(STDERR_FILENO);
+    
+    ret = interceptor_worker(wk->nfqueue_id);
+
+    if(ret!=0) wk->status = ERROR;
     
     
-    /*
-     * A COMPLETER
-     * J'ai pris l'exemple de la libmnl
-     */
-    interceptor_worker(wk->nfqueue_id);
-    /**/
-    
-    
-    wk->st.nb_requetes_recues += wk->pid;
-    SLOGL_vprint(SLOGL_LVL_INFO,"Test");
-    
-    exit(EXIT_SUCCESS);
+    wk->operation_pending |= SELF_STOP;
+    exit(wk->status);
 }
 
 
+/*
 worker* worker_duplicate(worker *wk){
     worker* new = NULL;
     char *myshm_name = NULL;
@@ -76,53 +84,85 @@ worker* worker_duplicate(worker *wk){
     new->shm_name = myshm_name;
     
     return new;
-}
+}*/
 
 
-void worker_configure_signaux(void){
-    int i;
-    
-    struct sigaction action;
-    action.sa_handler = worker_gestionnaire_signal;
-    sigemptyset( &(action.sa_mask));
-    
-    for(i=0; i<NSIG; i++){
-        sigaddset( &(action.sa_mask), i);
-    }
-    
-    action.sa_flags = SA_NOCLDSTOP | SA_RESTART | SA_SIGINFO;
-    
-    sigaction(SIGINT, &action, NULL);
-    sigaction(SIGTERM, &action, NULL);
-}
-
-
+/**
+ * WORKER GESTIONNAIRE SIGNAL
+ * Handlers pour les différents signaux.
+ */
 void worker_gestionnaire_signal(int numero, 
             siginfo_t *info, void*data)
 {
     switch(numero){
         case SIGTERM:
             if(info->si_pid == ME->ppid){
-                SLOGL_vprint(SLOGL_LVL_INFO,"Dispatcher (pid=%d) \
-nous a envoye le signal de fin", ME->ppid);
-                exit(EXIT_SUCCESS);
+                SLOGL_vprint(SLOGL_LVL_INFO,"[worker %d] \
+Le controller nous stoppe.", ME->number);
+                exit(1);
             }
             break; 
         case SIGINT:
             if(info->si_pid == ME->ppid){
-                SLOGL_vprint(SLOGL_LVL_INFO,"Dispatcher (pid=%d) \
-nous a envoye le signal de fin", ME->ppid);
-                exit(EXIT_SUCCESS);
+                SLOGL_vprint(SLOGL_LVL_INFO,"[worker %d] \
+Le controller nous stoppe.", ME->number);
+                exit(1);
             }
             break;
         default:
+            SLOGL_vprint(SLOGL_LVL_INFO,"[worker %d] Reception du signal non géré %d. Aucune action", ME->number, numero);
             break;
     }
       
 }
 
 
+/**
+ * WORKER CONFIGURE SIGNAUX
+ * Configuration des handler pour les différents signaux.
+ *
+ * Valeurs de retour
+ * 0  -> SUCCESS
+ * -1 -> ERROR
+ */
+int worker_configure_signaux(void){
+    struct sigaction action;
+    action.sa_sigaction = worker_gestionnaire_signal;
+    sigemptyset( &(action.sa_mask));
+     
+    if ( sigfillset( &(action.sa_mask)) == -1){
+         SLOGL_vprint(SLOGL_LVL_ERROR,"[worker %d] \
+Erreur d'instanciation du masque des signaux: %s",
+         ME->number, strerror(errno));
+         return -1;
+    }
+    
+    action.sa_flags = SA_RESTART | SA_SIGINFO;
+    
+    if ( sigaction(SIGINT, &action, NULL) != 0 ){
+        SLOGL_vprint(SLOGL_LVL_ERROR,"[worker %d] \
+Erreur d'association du handler du signal SIGINT: %s",
+ ME->number, strerror(errno));
+        return -1;
+    }
+    if ( sigaction(SIGTERM, &action, NULL) != 0 ){
+        SLOGL_vprint(SLOGL_LVL_ERROR,"[worker %d] \
+Erreur d'association du handler du signal SIGTERM: %s",
+ ME->number, strerror(errno));
+        return -1;
+    }
+    
+    return 0;
+}
+
+
+/**
+ * WORKER CLEANUP
+ * Fonction de libration automatiques des ressources
+ * à l'arrêt du worker
+ */
 void worker_cleanup(void){
+    ME->operation_pending = ME->operation_pending & ~RUNNING;
     shm_unlink(ME->shm_name);
     free(ME->shm_name);
     SLOGL_quit();

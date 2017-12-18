@@ -11,6 +11,7 @@
 #include <sys/types.h>
 #include <sys/wait.h>
 
+#include "gestiondroits.h"
 #include "workers.h"
 #include "configfile.h"
 #include "logger.h"
@@ -40,6 +41,8 @@ static int controller_get_rangefile(controller *ctrl, config_t *cfg);
 static int controller_get_dnsentryfile(controller *ctrl, config_t *cfg);
 static void controller_get_nbworkers(controller *ctrl, config_t *cfg);
 static int controller_get_queue_id(controller *ctrl, config_t *cfg);
+static int controller_get_username(controller *ctrl, config_t *cfg);
+static int controller_get_groupname(controller *ctrl, config_t *cfg);
 static void controller_stop_worker(controller *ctrl, int position, int signal);
 
 
@@ -65,6 +68,8 @@ int controller_complete_from_file(controller *ctrl)
     if (controller_get_log_write_prefix(ctrl, &cfg) !=0 ) goto destroy;
     if (controller_get_rangefile(ctrl, &cfg) !=0 ) goto destroy;
     if (controller_get_dnsentryfile(ctrl, &cfg) !=0 ) goto destroy;
+    controller_get_username(ctrl, &cfg);
+    controller_get_groupname(ctrl, &cfg);
     controller_get_nbworkers(ctrl, &cfg);
 
     if (controller_get_queue_id(ctrl, &cfg) !=0 ) goto destroy;
@@ -129,6 +134,7 @@ void controller_free(controller **ctrl, int close_shm_link){
     free((*ctrl)->logs_dir);
     free((*ctrl)->log_general_prefix);
     free((*ctrl)->log_rewrite_prefix);
+    free((*ctrl)->username);
     controller_free_all_worker_except(*ctrl,NULL);
     free((*ctrl)->workerstab);
     free(*ctrl); 
@@ -159,7 +165,7 @@ void controller_free_all_worker_except(controller *ctrl, worker *c){
         shm_unlink(wk->shm_name);
         free(wk->shm_name);
         ctrl->running_worker--;
-        *(ctrl->workerstab + i) = NULL; 
+        *(ctrl->workerstab + i) = NULL;
     }
     
 }
@@ -346,7 +352,7 @@ static int controller_get_rangefile(controller *ctrl, config_t *cfg){
         
         if (access(str_tmp, R_OK)!=0){
             SLOGL_vprint(SLOGL_LVL_ERROR,
-        "Le fichier %s n'est pas accessible en lecture.",
+        "[controller] Le fichier %s n'est pas accessible en lecture.",
          str_tmp);
             return -1;
         }
@@ -354,11 +360,12 @@ static int controller_get_rangefile(controller *ctrl, config_t *cfg){
         strncpy( ctrl->range_file, str_tmp, len_str-1 );
         
         SLOGL_vprint(SLOGL_LVL_INFO,
-        "%s: range file -> %s", config_error_file(cfg), str_tmp);
+        "[controller] %s: range file -> %s",\
+         config_error_file(cfg), str_tmp);
         return 0;
     }
     SLOGL_vprint(SLOGL_LVL_ERROR,
-        "%s: aucun fichier de zone defini",
+        "[controller] %s: aucun fichier de zone defini",
          config_error_file(cfg));
     return -1;
 }
@@ -387,8 +394,7 @@ static int controller_get_dnsentryfile(controller *ctrl, config_t *cfg){
         
         if (access(str_tmp, R_OK)!=0){
             SLOGL_vprint(SLOGL_LVL_ERROR,
-        "Le fichier %s n'est pas accessible en lecture.",
-         str_tmp);
+        "[controller] Le fichier %s n'est pas accessible en lecture.",str_tmp);
             return -1;
         }
         
@@ -396,11 +402,12 @@ static int controller_get_dnsentryfile(controller *ctrl, config_t *cfg){
         strncpy( ctrl->dnsentry_file, str_tmp, len_str-1 );
         
         SLOGL_vprint(SLOGL_LVL_INFO,
-        "%s: fichier entrées DNS -> %s", config_error_file(cfg), str_tmp);
+        "[controller] %s: fichier entrées DNS -> %s",
+         config_error_file(cfg), str_tmp);
         return 0;
     }
     SLOGL_vprint(SLOGL_LVL_ERROR,
-        "%s: aucun fichier de d'entrées DNS defini",
+        "[controller] %s: aucun fichier de d'entrées DNS defini",
          config_error_file(cfg));
     return -1;
 }
@@ -427,22 +434,23 @@ static void controller_get_nbworkers(controller *ctrl, config_t *cfg){
         if( (nbworkers>=0)&&(nbworkers<=MAX_WORKERS) ){
             ctrl->nb_workers = nbworkers;
             SLOGL_vprint(SLOGL_LVL_INFO,
-        "%s: utilisation de %d workers (%d par file)",
-         config_error_file(cfg), nbworkers*2, nbworkers);
+        "[controller] %s: utilisation de %d workers (%d par file)",
+        config_error_file(cfg), nbworkers*2, nbworkers);
         }
         else {
             ctrl->nb_workers = 1;
             SLOGL_vprint(SLOGL_LVL_ERROR,
-        "%s: nombre de workers indique invalide (%d). Utilisation de \
-la valeur par default (1 par file)",
+        "[controller] %s: nombre de workers indique invalide \
+(%d). Utilisation de la valeur par default (1 par file)",
          config_error_file(cfg), nbworkers);
         }
     }
     else {
         ctrl->nb_workers = 1;
         SLOGL_vprint(SLOGL_LVL_ERROR,
-        "%s: nombre de workers n'est pas indique. Utilisation de \
-la valeur par default (1 par file)", config_error_file(cfg));
+        "[controller] %s: nombre de workers n'est pas indique. \
+Utilisation de la valeur par default (1 par file)",
+        config_error_file(cfg));
     }
     
     programLevel = ctrl->debug_level;
@@ -469,12 +477,12 @@ static int controller_get_queue_id(controller *ctrl, config_t *cfg){
     if(config_lookup_int(cfg, "WORKER.first_query_queue", &id)){
         ctrl->first_query_queue = id;
         SLOGL_vprint(SLOGL_LVL_INFO,
-"%s: utilisation des files %d à %d en entree",
+"[controller] %s: utilisation des files %d à %d en entree",
          config_error_file(cfg), id, ctrl->nb_workers+id);
     }
     else {
         SLOGL_vprint(SLOGL_LVL_ERROR,
-"%s: aucune ID de file nfqueue indiquee",
+"[controller] %s: aucune ID de file nfqueue indiquee",
          config_error_file(cfg));
          return -1;
     }
@@ -482,18 +490,156 @@ static int controller_get_queue_id(controller *ctrl, config_t *cfg){
     if(config_lookup_int(cfg, "WORKER.first_response_queue", &id)){
         ctrl->first_response_queue = id;
         SLOGL_vprint(SLOGL_LVL_INFO,
-"%s: utilisation des files %d à %d en sortie",
+"[controller] %s: utilisation des files %d à %d en sortie",
          config_error_file(cfg), id, ctrl->nb_workers+id);
     }
     else {
         SLOGL_vprint(SLOGL_LVL_ERROR,
-"%s: aucune ID de file nfqueue indiquee",
+"[controller] %s: aucune ID de file nfqueue indiquee",
          config_error_file(cfg));
          return -1;
     }
     
     return 0;
     
+}
+
+
+/**
+ * CONTROLLER_GET_USERNAME
+ * Récupére le nom de l'utilisateur qui aura la possesion
+ * des différents processus. 
+ * La fonction verifie que l'utilisateur existe
+ *
+ * Parametres
+ * @ctrl: pointeur sur une structure controller
+ * @cfg: pointeur sur une structure config_t obtenue
+ *       precedemment par @controller_complete_from_file
+ *
+ * Valeur de retour
+ *  0 -> SUCCESS
+ * -1 -> l'utilisateur n'existe pas
+ */
+static int controller_get_username(controller *ctrl, config_t *cfg){
+    const char *str_tmp = NULL;
+    size_t len_str =0;
+    
+    if(config_lookup_string(cfg, "SECURITY.username", &str_tmp)){
+        len_str = strlen(str_tmp)+1;
+        
+        if(convert_username_to_uid(str_tmp)<0){
+            SLOGL_vprint(SLOGL_LVL_ERROR,
+"[controller] %s: l'utilisateur %s n'existe pas sur le systeme.",
+         config_error_file(cfg), str_tmp);
+            return -1;
+        }
+        
+        ctrl->username = calloc(len_str, sizeof(char));
+        strncpy( ctrl->username, str_tmp, len_str-1 );
+        
+        SLOGL_vprint(SLOGL_LVL_INFO,
+        "[controller] %s: username -> %s",
+         config_error_file(cfg), str_tmp);
+        return 0;
+    }
+    SLOGL_vprint(SLOGL_LVL_INFO,
+        "[controller] %s: aucun utilisateur d'execution defini",
+         config_error_file(cfg));
+    return 0;
+}
+
+
+/**
+ * CONTROLLER_GET_GROUPNAME
+ * Récupére le nom du froupe qui aura la possesion
+ * des différents processus. 
+ * La fonction verifie que le groupe existe
+ *
+ * Parametres
+ * @ctrl: pointeur sur une structure controller
+ * @cfg: pointeur sur une structure config_t obtenue
+ *       precedemment par @controller_complete_from_file
+ *
+ * Valeur de retour
+ *  0 -> SUCCESS
+ * -1 -> le groupe n'existe pas
+ */
+static int controller_get_groupname(controller *ctrl, config_t *cfg){
+    const char *str_tmp = NULL;
+    size_t len_str =0;
+    
+    if(config_lookup_string(cfg, "SECURITY.groupname", &str_tmp)){
+        len_str = strlen(str_tmp)+1;
+        
+        if(convert_groupname_to_gid(str_tmp)<0){
+            SLOGL_vprint(SLOGL_LVL_ERROR,
+"[controller] %s: le groupe %s n'existe pas sur le systeme.",
+         config_error_file(cfg), str_tmp);
+            return -1;
+        }
+        
+        ctrl->groupname = calloc(len_str, sizeof(char));
+        strncpy( ctrl->username, str_tmp, len_str-1 );
+        
+        SLOGL_vprint(SLOGL_LVL_INFO,
+        "[controller] %s: groupname -> %s",
+         config_error_file(cfg), str_tmp);
+        return 0;
+    }
+    SLOGL_vprint(SLOGL_LVL_INFO,
+        "[controller] %s: aucun groupe d'execution defini",
+         config_error_file(cfg));
+    return 0;
+}
+
+
+/**
+ * CONTROLLER_SET_SECURITE
+ * Permet de modifier l'utilisateur et le groupe effectif
+ * du processus.
+ * Si aucun utilisateur n'est défini, 
+ * la fonction s'assure quand même que
+ * le user actuel posséde la capacité @CAP_NET_ADMIN
+ *
+ * Valeur de retour
+ * @0  -> SUCCESS
+ * @-1 -> ERREUR 
+ */
+int controller_set_securite(controller *ctrl){
+    uid_t executif_uid;
+    gid_t executif_gid;
+    
+    if (set_proc_capabilities() !=0 ){
+        return -1;
+    }
+    
+    if( ctrl->username ){
+        executif_uid = convert_username_to_uid(ctrl->username);
+        if(setuid(executif_uid)!=0){
+            SLOGL_vprint(SLOGL_LVL_ERROR,
+"[controller] Erreur lors de la définition du nouvel utilisateur \
+effectif.");
+            return -1;
+        }
+        
+        SLOGL_vprint(SLOGL_LVL_INFO,
+"[controller] Le nouvel utilisateur effectif est %s.", ctrl->username);
+    }
+    
+    if( ctrl->groupname ){
+        executif_gid = convert_groupname_to_gid(ctrl->groupname);
+        if(setgid(executif_gid)!=0){
+                       SLOGL_vprint(SLOGL_LVL_ERROR,
+"[controller] Erreur lors de la définition du nouveau groupe effectif.");
+            return -1;
+        }
+        
+        SLOGL_vprint(SLOGL_LVL_INFO,
+"[controller] Le nouveau groupe effectif est %s.", ctrl->groupname);
+    }
+    
+    set_proc_capabilities_after_seteuid();
+    return 0;
 }
 
 
@@ -581,7 +727,12 @@ projection en memoire: %s", strerror(errno));
 }
 
 
-worker* controller_get_worker_bypid(controller *ctrl, pid_t pid){
+/**
+ * CONTROLLER_GET_WORKER_BY_PID
+ * Parcours la liste dew orkers à la recherche du worker
+ * ayant le PID spécifié en paramètre
+ */
+static worker* controller_get_worker_bypid(controller *ctrl, pid_t pid){
     int i, max;
     worker *wk = NULL;
     max = ctrl->nb_workers * 2;
@@ -599,7 +750,12 @@ worker* controller_get_worker_bypid(controller *ctrl, pid_t pid){
 
 /**
  * CONTROLLER_RESTART_WORKER
- * Redémarrage d'un worker identifié par son pid
+ * Redémarrage d'un worker identifié par son pid.
+ * La fonction se charge d'arreter le worker, s'il est démarré.
+ * 
+ * Cette fonction est typiquement appelé en cas d'arret non
+ * sollicite du worker ou en cas de besoin de reload de 
+ * la configuration
  */
 void controller_restart_worker(controller *ctrl, pid_t pid){
     int  qid, position;
@@ -609,8 +765,6 @@ void controller_restart_worker(controller *ctrl, pid_t pid){
     wk =  controller_get_worker_bypid(ctrl, pid);
     if(wk==NULL) return;
     
-    CONTROLLER->running_worker--;
-    
     if(ctrl->stopapp){
         SLOGL_vprint(SLOGL_LVL_ERROR,"Le controller a initié \
 le processus d'arrêt. Relance du worker %d impossible", wk->number);
@@ -618,53 +772,86 @@ le processus d'arrêt. Relance du worker %d impossible", wk->number);
     }
     
     position = wk->number;
-    
+    SLOGL_vprint(SLOGL_LVL_INFO,"[controller] Redemarrage du \
+worker %d", position);
+
     /**
      * Cas où le redemarrage a été initie par le controller
-     * suite a l'arret inopine d'un worker
-     * dans ce cas pas besoin de l'arreter
+     * suite à la reception d'un signal demandant le reload
+     * de la configuration. Les workers devront donc
+     * etre redemarre
      */
-    if (! (wk->operation_pending & RESTART_BY_CONTROLLER) ){
+    if (! (wk->operation_pending & RESTART_BY_CONTROLLER) )
+    {
         wk->operation_pending |= RESTART_BY_CONTROLLER;
         controller_stop_worker(ctrl, position, SIGTERM);
         waitpid(wk->pid, NULL,0);
     }
     
-    SLOGL_vprint(SLOGL_LVL_INFO,"Redemarrage du worker %d", position);
     qid = wk->nfqueue_id;
     
     *(ctrl->workerstab + position) = NULL;
     shm_unlink(wk->shm_name);
     free(wk->shm_name);
-    //free(wk);
     controller_init_worker(ctrl, qid, position);
     controller_fork_worker(ctrl, position);
 }
 
 
-static void controller_stop_worker(controller *ctrl, int position, int signal){
+/**
+ * CONTROLLER_STOP_WORKER
+ * Arret d'un worker par rapport à son matricule
+ * (position dans la table des workers)
+ * Le signal
+ */
+static void controller_stop_worker(controller *ctrl, int position, int signal)
+{
         int ret;
         
         worker *wk = *(ctrl->workerstab + position);
         
-        if (wk==NULL) return;
-        if(! (wk->operation_pending & RUNNING) ) return;
+        if (wk==NULL) {
+            return;
+        }
+        
+        if( (signal != SIGKILL) && (signal != SIGKILL) ){
+            SLOGL_vprint(SLOGL_LVL_ERROR,"[controller] \
+Erreur d'arrêt du worker, le signal %s n'est pas valide \
+(SIGKILL ou SIGTERM uniquement). Envoie du signal SIGTERM.",
+             sys_siglist[signal]);
+             signal = SIGTERM;
+        }
+        
+        /**
+         * Si le fils n'est pas en fonctionnement,
+         * on quitte la fonction
+         */
+        if(! (wk->operation_pending & RUNNING) ){
+            return;
+        }
         
         wk->operation_pending |= STOP_BY_CONTROLLER;
         ret = kill(wk->pid, signal);
+         
         
         if(ret==0){
-            SLOGL_vprint(SLOGL_LVL_INFO,"Envoie du signal %d \
-au worker %d (pid=%d)",signal, position, wk->pid);
+            SLOGL_vprint(SLOGL_LVL_INFO,"[controller] \
+Envoie du signal %d au worker %d (pid=%d)",
+signal, position, wk->pid);
         }
         else{
-            SLOGL_vprint(SLOGL_LVL_ERROR,"Erreur lors de l'envoie \
-du signal %d au worker %d (pid=%d): %s",
+            SLOGL_vprint(SLOGL_LVL_ERROR,"[controller] \
+Erreur lors de l'envoie du signal %d au worker %d (pid=%d): %s",
              signal, position, wk->pid, strerror(errno));
         }
 }
 
 
+/**
+ * CONTROLLER_FORK_WORKER
+ * Fork du processus controller, puis démarrage 
+ * du nouveau worker.
+ */
 void controller_fork_worker(controller *ctrl, int position){
     worker *wk = NULL;
     pid_t pid;
@@ -682,7 +869,7 @@ void controller_fork_worker(controller *ctrl, int position){
              * On peut donc supprimer la structure CONTROLLER
              * (heritée du père).
              * On prend garde à ne pas se supprimer soit même
-             * en se dereferencer de la struct controller
+             * en se dereferencant de la struct controller
              */ 
             controller_free_all_worker_except(ctrl,wk);
             *(ctrl->workerstab + position) = NULL;
@@ -695,81 +882,87 @@ void controller_fork_worker(controller *ctrl, int position){
              */
             worker_main(wk);
         case -1:
-            SLOGL_vprint(SLOGL_LVL_ERROR,"Erreur lors du fork: %s",
-            strerror(errno));
+            SLOGL_vprint(SLOGL_LVL_ERROR,"[controller] \
+Erreur lors du fork: %s", strerror(errno));
         default:
-            SLOGL_vprint(SLOGL_LVL_INFO,"Creation d'un nouveau worker \
-                pid %d",pid);
+            SLOGL_vprint(SLOGL_LVL_INFO,"[controller] \
+Creation d'un nouveau worker pid %d",pid);
             wk->pid = pid;
     }
 }
 
+
 /**
  * CONTROLLER_CONFIGURE_SIGNAUX
  * Configure la gestion des signaux sur le controller
- *
  */
-void controller_configure_signaux(void){
-    int i;
-    
+void controller_configure_signaux(void){    
     struct sigaction action;
     action.sa_sigaction = controller_gestionnaire_signal;
     sigemptyset( &(action.sa_mask));
     
-    for(i=0; i<NSIG; i++){
-        sigaddset( &(action.sa_mask), i);
-    }
+    sigfillset( &(action.sa_mask));
     
-    action.sa_flags = SA_NOCLDSTOP | SA_RESTART | SA_SIGINFO;
+    /**
+     * On active les fonctions de, restart 
+     * des appels systèmes lents en cas de récepeption
+     * d'un signal, ainsi que les informations
+     * étendus sur l'origine du signal
+     */
+    action.sa_flags =  SA_RESTART | SA_SIGINFO;
     
+    /**
+     * On intercepte uniquement les signaux
+     * @SIGINT et @SIGTERM pour l'arret
+     * @SIGCHLD pour la gestion des workers
+     * TODO: @USR1 pour le reload de la conf
+     */
     sigaction(SIGINT, &action, NULL);
     sigaction(SIGTERM, &action, NULL);
     sigaction(SIGCHLD, &action, NULL);
-    sigaction(SIGHUP, &action, NULL);
-    sigaction(SIGUSR1, &action, NULL);
 }
 
 
 
 /**
  * CONTROLLER_GESTIONNAIRE_SIGNAL
- * Handler pour les signaux
+ * Handler pour les différents signaux
  */
 void controller_gestionnaire_signal(int numero, 
             siginfo_t *info, void *data)
 {
-    worker *wk = NULL;
-    
-    fprintf(stderr,"[CONTROLLER] Réception su signal %d\n", numero);
+    int pid;
+
     switch(numero){
         case SIGCHLD:
-            wk = controller_get_worker_bypid(CONTROLLER,info->si_pid);
-            if(wk==NULL) return;
-            if ( !(wk->operation_pending & RESTART_BY_CONTROLLER)){
-                waitpid(info->si_pid, NULL,0);
+            /**
+             * Linux n'est pas un système temps réel, 
+             * de ce fait les signaux identiques ne sont pas empilables
+             * ex:la réception de 20 signaux identiques entraine
+             *    le traitement du premier via le handler definit,
+             *    le second est conservés empile, mais les 18 autres
+             *    seront perdus.
+             * Afin de gérer l'arrêt de plusieurs processus fils 
+             * (envoie du signal SIGCHLD par le noyau), le noyau Linux
+             * peut être emmené à n'envoyer qu'un seul signal.
+             * 
+             * S'est alors au processus pere de verifier lequel de
+             * ses fils s'est arrêté.
+             *
+             * -1       -> parcours l'ensemble des processus fils
+             * WHNOHANG -> ne pas rester bloquer si le fils
+             *             n'a pas fini  
+             */
+            while ( (pid=waitpid((pid_t)(-1), 0, WNOHANG)) > 0){
+                controller_manager_endofworker(CONTROLLER, pid);
             }
             
-            wk->operation_pending = wk->operation_pending & ~RUNNING;
-            
-            fprintf(stderr,"OP: %d , status=%d, stats= %lld\n", wk->operation_pending,wk->status, wk->st.nb_requetes_recues);
-            
-            if( (!(wk->operation_pending & STOP_BY_CONTROLLER)) &&
-                (!(wk->operation_pending & RESTART_BY_CONTROLLER)) ){
-                SLOGL_vprint(SLOGL_LVL_ERROR,"Terminaison  \
-non sollicite du worker %d avec status=%d",
-             wk->number, wk->status);
-                
-                wk->operation_pending |= RESTART_BY_CONTROLLER;
-                controller_restart_worker(CONTROLLER, info->si_pid);
-            }
-            else CONTROLLER->running_worker--;
             break;
         case SIGINT:
-            controller_kill_worker(CONTROLLER, SIGINT);
+            controller_kill_worker(CONTROLLER);
             break;
         case SIGTERM:
-            if(CONTROLLER->stopapp) controller_kill_worker(CONTROLLER, SIGKILL);
-            else controller_kill_worker(CONTROLLER, SIGTERM);
+            controller_kill_worker(CONTROLLER);
             break;
         default:
             break;
@@ -778,22 +971,102 @@ non sollicite du worker %d avec status=%d",
 
 
 /**
+ * CONTROLLER_MANAGE_ENDOFWORKER
+ * Gestion de l'arret d'un worker.
+ * On verifie notament si le noeud s'est arrête à l'initiative
+ * du controller ou suite à une erreur.
+ * On le redemarre au besoin. 
+ */
+void controller_manager_endofworker(controller *ctrl, int pid){
+    worker *wk = NULL;
+    
+    wk = controller_get_worker_bypid(CONTROLLER,pid);
+    
+    if(wk==NULL) return;        
+    CONTROLLER->running_worker--;
+            
+    if( (!(wk->operation_pending & STOP_BY_CONTROLLER)) &&
+        (!(wk->operation_pending & RESTART_BY_CONTROLLER)) )
+    {
+        SLOGL_vprint(SLOGL_LVL_ERROR,"[controller] \
+Terminaison non sollicite du worker %d avec status=%d",
+        wk->number, wk->status);
+                
+        /**
+         * Si le worker quitte avec une erreur critique,
+         * on considere que son redemarrage risque
+         * d'entrainer une boucle d'erreur, on ne le traite donc pas.
+         * A noter qu'on aurait aussi pu choisir de se baser
+         * sur la valeur de retour du worker plutôt que sur
+         * de la mémoire partagée.
+         */
+        if( wk->status != CRITICAL_ERROR){
+            wk->operation_pending |= RESTART_BY_CONTROLLER;
+        }
+        
+        else {
+            SLOGL_vprint(SLOGL_LVL_FATAL,"[controller] \
+Le worker %d s'est arrete avec une erreur critique. \
+Redemarrage non effectue",
+        wk->number);
+        }
+        
+        
+        /**
+         * COMMENTAIRE POUR SUIVI:  
+         * Initialement, le worker en defaut etait relance
+         * ici, c'est à dire dans le handler du signal.
+         * Bien que l'appel systeme fork soit async safe,
+         * on rencontrait des problèmes dans la gestion
+         * des signaux sur le nouveau worker; les handlers
+         * n'etait pas applique et on se coltinner ceux
+         * par defaut.
+         * Le redemarrage a donc maintenant lieu dans 
+         * la boucle main en sortie de handler
+         */
+        
+        //controller_restart_worker(CONTROLLER, pid);
+    }
+}
+
+
+/**
  * CONTROLLER_KILL_WORKER
- * Envoie le signal SIGTERM à tous les workers
+ * Envoie une demande d'arrêt à tous les workers.
+ * S'il s'agit de la première demande, on envoie le signal
+ * @SIGTERM afin de permettre au worker de finir une éventuelle
+ * tache en cours.
+ * Le second appel de la fonction enverra le signal @SIGKILL
+ * pour forcer l'arrêt du worker.
  *
  * Valeur de retour
  *  0 -> SUCCESS
  * -1 -> ERREUR
  */
-void controller_kill_worker(controller *ctrl, int signal){
+void controller_kill_worker(controller *ctrl){
     int max, i;
+    int signal;
     
     if (ctrl==NULL) return;    
     max = ctrl->nb_workers *2;
     
-    ctrl->stopapp = 1;
+    if(!ctrl->stopapp){
+        signal= SIGTERM;
+    }
+    else{
+        signal = SIGKILL;
+    }
     
     for(i=0; i<max; i++){
         controller_stop_worker(ctrl, i, signal);
     }
+    
+    /**
+     * On indique qu'on a deja effectue une tentative d'arret
+     * Si on reitere la demande d'arret par la suite, les 
+     * 2 premiers if en debut de fonction permettront
+     * de forcer l'arrêt du worker par le signal @SIGKILL
+     * au lieu de @SIGTERM
+     */
+    ctrl->stopapp = 1;
 }

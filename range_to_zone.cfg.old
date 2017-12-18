@@ -1,0 +1,10 @@
+# Fichier de correspondance entre le nom de la zone
+# et l'adresse IP source du client
+# 1 nom de zone peut etre present plusieurs fois
+# si est associe a plusieurs reseaux non resumables en 1 route
+
+POP1    10.0.1.0/24
+POP2    10.0.2.0/24
+POP3    10.0.3.0/24
+root    127.0.0.1/32
+root	192.168.0.0/16

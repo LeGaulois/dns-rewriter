@@ -187,7 +187,6 @@ void* hashtable_get_element(hashtable *ht, char *cible, char *cible2){
     if (position ==-1) return NULL;
     
     l = ht->entries[position];
-    if(!l) fprintf(stderr,"L NULL\n\n");
     /*
      * L'utilisation de cible2 permet de diversifier 
      * les critères de recherche dans la hashtable.
@@ -231,7 +230,7 @@ int hashtable_add_element(hashtable *ht, char *str, void *data){
     if (do_hash(str, digest) != 0) return -1;
     position = get_hashtable_position_from_digest(ht, digest, MD5_HASH_SIZE);
     free(digest);
-  	fprintf(stderr,"POSITION ADD ELEM: %d\n", position);
+    
     if (position ==-1) return -1;
     
     l = ht->entries[position];

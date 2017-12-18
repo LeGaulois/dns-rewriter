@@ -7,16 +7,16 @@
 
 
 //int add_invert_resolution(hashtable *ht, char* tid, char* string, char* rewrited);
-int move_rappel_bytes(struct pkt_buff *pbuff, dnspacket* p, char* new_str);
+void move_rappel_bytes(dnspacket* p, char* new_str);
 int set_checksum_to_zero(struct pkt_buff *pkb);
-int replace_q(struct pkt_buff *pkb, dnspacket *packet, int nq, char* to_insert, uint8_t type);
-int rewrite_dns(struct pkt_buff *sock_buff, unsigned char* labelized_query, hashtable* hashtable, dnspacket* packet, uint8_t type);
+int replace_query(dnspacket *packet, char* to_insert, uint8_t type);
 
-
-
-
-
-
+int rewrite_dns_query(dnspacket* packet, unsigned char* query,
+            hashtable* hashtable);
+int rewrite_dns_response(dnspacket* packet, unsigned char* query,
+            hashtable* hashtable);
+int rewrite_dns(dnspacket* packet, unsigned char* query, 
+        hashtable* hashtable, uint8_t type);
 
 
 #endif

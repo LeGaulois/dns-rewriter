@@ -1,10 +1,22 @@
 #ifndef WORKERS_H_INCLUDED
 #define WORKERS_H_INCLUDED
 
+#define OK 0
+#define ERROR 1
+#define CRITICAL_ERROR 2
 
-#define MODE_QUERY 0
-#define MODE_RESPONSE 1
-#define MODE_ALL 2
+
+#include <signal.h>
+
+
+enum {
+    RESTART_BY_CONTROLLER = 1<<0,
+    STOP_BY_CONTROLLER = 1<<1,
+    SELF_STOP = 1<<2,
+    RUNNING = 1<<3
+};
+
+
 /*
 * WORKER
 * Structure permettant de stocker toutes les informations
@@ -36,7 +48,9 @@ struct worker {
     pid_t           pid;
     pid_t           ppid;
     int             nfqueue_id;
-    unsigned int    running:1;
+    int             number;
+    int             status;
+    int             operation_pending;
     char            *shm_name;
     
     struct stats           st;    
@@ -44,8 +58,8 @@ struct worker {
 
 
 void worker_main(worker *wk);
-worker* worker_duplicate(worker *wk);
-void worker_configure_signaux(void);
+//worker* worker_duplicate(worker *wk);
+int worker_configure_signaux(void);
 void worker_gestionnaire_signal(int numero, 
             siginfo_t *info, void*data);
 void worker_cleanup(void);

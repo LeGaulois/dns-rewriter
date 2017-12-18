@@ -3,6 +3,7 @@
 #include <unistd.h>
 #include <string.h>
 
+#include <netinet/in.h>
 #include <libmnl/libmnl.h>
 #include <linux/netfilter.h>
 #include <linux/netfilter/nfnetlink.h>
@@ -18,150 +19,184 @@
 #include <linux/udp.h>
 
 #include "dnsparser.h"
+#include "workers.h"
+#include "logger.h"
 
-int get_nb_dnsquery(struct pkt_buff *pbuff) {
 
-	struct iphdr *ip = nfq_ip_get_hdr(pbuff);
-	nfq_ip_set_transport_header(pbuff, ip);
-	
-	uint8_t *user_data = NULL;
-	user_data = pktb_transport_header(pbuff) + 8;
-	if(user_data == NULL) return -10;
-	return user_data[5];
-}
-void init_dns_query(dnsquery* d) {
-	if(d != NULL) {
-		d->length	= 0;
-		d->qtype	= 0;
-		d->qclass	= 0;
-		d->qname	= NULL;
-		d->qname	= calloc(253,sizeof(char));
-	}
-}
-dnspacket* init_struct_dnspacket(int nb_queries) {
+extern worker *ME;
+
+
+
+/**
+ * INIT_STRUCT_DNSPACKET
+ * Initie une structure dnspacket.
+ */
+dnspacket* init_struct_dnspacket() 
+{
 	dnspacket *p = NULL;
 	p = calloc(1,sizeof(dnspacket));
 	
-	if(p != NULL) {
-		p->queries = NULL;
-	
-		p->queries = calloc(nb_queries,sizeof(dnsquery));
-	
-		for(int i=0;i<nb_queries;i++) {
-			init_dns_query(p->queries + i);
-		}
-
-		p->pos_query_in_frame = calloc(nb_queries,sizeof(unsigned char*));
-
-		p->nb_queries = nb_queries;
-		p->nb_replies = 0;
-		
-		p->transaction_id 	= calloc(8,sizeof(char));
-		p->flags 		= 0;
-		p->nb_author_reply	= 0;
-		p->nb_add_reply 	= 0;
-		return p;	
+	if(!p){
+	    return NULL;
 	}
-	else return NULL;
-}
-void destroy_dnsquery(dnsquery* d) {
-	free(d->qname);
-	free(d);
-}
-
-void destroy_dnspacket(dnspacket* d) {
-	for(int i=0;i<d->nb_queries;i++) {
-		destroy_dnsquery(&d->queries[i]);
-	}
-	free(d->queries);
-	free(d);
-}
-
-
-/* FONCTION DE PARSING - 1ERES VERIFICATIONS SUR LES PAQUETS
-
-Retourne -1 en cas d'erreur : UDP & DNS MANDATORY & QUERY/RESP MANDATORY 
-A FAIRE EN CAS DE -1 : NF_ACCEPT sans traitement
-
-*/
-
-
-int dns_req_parsing (struct pkt_buff *sock_buffer, struct _DNS_PACKET *p, int nbq) {
 	
-/* DECLARATION DES PREMIERES VARIABLES */
+	p->skb              = NULL;
+	p->user_data        = NULL;
+    p->transaction_id 	= calloc(8,sizeof(char));
+    p->flags 		    = 0;
+	p->nb_queries       = 0;
+	p->nb_replies       = 0;
+	p->nb_author_reply	= 0;
+	p->nb_add_reply 	= 0;
+	p->nb_q_rewrited	= 0;
+	p->query.length     = 0;
+    p->query.qname      = NULL;
+    p->query.qtype      = 0;
+    p->query.qclass     = 0;
+	
+	return p;	
+}
+
+
+void destroy_dnspacket(dnspacket* dnsp) {
+    //TODO: FREE skbbuff ?
+	free(dnsp->query.qname);
+	free(dnsp);
+}
+
+
+
+/**
+ * DNSPACKET_PREPARE_STRUCT
+ * Vérifie les caractéristiques du paquet IP reçu.
+ * Récupère le payload.
+ *
+ * Valeurs de retour:
+ *  0 -> SUCCESS
+ * -1 -> ERROR
+ */
+int dnspacket_prepare_struct(dnspacket *p)
+{
 	struct iphdr *iph;
 	struct udphdr *udph;
 	
-	//pointers to the first byte of the IP/TRANSPORT HEADER.
-	iph = (struct iphdr *)nfq_ip_get_hdr(sock_buffer);
-	udph = (struct udphdr *)nfq_udp_get_hdr(sock_buffer);
-	
-/* VERIFICATION USUELLES */
-	if(iph->protocol != IPPROTO_UDP && udph->dest != 53 ) return -1;
-	
-	nfq_ip_set_transport_header(sock_buffer, iph);
-	//pointer to user_data
-	uint8_t *user_data = NULL;
-	user_data = pktb_transport_header(sock_buffer) + UDP_HDR_SIZE;
-	if(user_data == NULL) return -2;
-	
-	if(p == NULL) return -3;
-	
-	char test[3];
-	p->skb 			= sock_buffer;
-	fprintf(stderr,"TID : %02x - %02x\n\n",user_data[0],user_data[1]);
-	sprintf(p->transaction_id,"%02x%02x",user_data[0],user_data[1]);
-	p->flags		= ((uint16_t)user_data[2]<<8) + (uint16_t)user_data[3];
-	p->nb_replies		= user_data[7];
-	p->nb_author_reply	= (int)*(user_data+8) + (int)*(user_data+9);
-	p->nb_add_reply		= (int)*(user_data+10) + (int)*(user_data+11);
-	p->nb_q_rewrited	= 0;
-
-	
-	
-/* Si la trame est une réponse DNS mais ne contient pas de champ ANSWER, on drop. 
-Trop compliqué à parser et non pertinent
-*/	
-	if((p->flags == 0x8180 || p->flags == 0x8580) && p->nb_replies == 0) return -4;
-	
-/* Conversion des requetes en string & remplissage des structures */
-	
-	unsigned char *pinit = NULL;
-	int i=0, k=0;
-	pinit = user_data + DNS_FIX_HDR_SIZE;
-	for(i=0;i<nbq;i++) {
-		k=0;
-		//On sauvegarde la position de chaque requete dans le paquet initial
-		p->pos_query_in_frame[i] = pinit;
-		
-		while(*(pinit+k) != 0x00 && k < 253) {
-			int nb_char = (int)*(pinit+k);
-			for(int l=0;l<nb_char;l++){
-				p->queries[i].qname[k] = (unsigned char) *(pinit + k + 1); 
-				k++;
-			}
-			p->queries[i].qname[k] = '.';
-			k+=1;
-		}
-		/*On termine  la chaine de caractère proprement*/
-		p->queries[i].qname[k]	= '\0';
-		
-		/* On affecte es autres valeurs à la requête */
-		p->queries[i].length	= k;
-		p->queries[i].qtype	= *(pinit + k + 2);
-		p->queries[i].qclass	= *(pinit + k + 4);
-	
-		//On rajoute un offset de manière à acceder à la requete suivante
-		if(i==0) pinit = user_data+12+k+5;
-		if(i!=0) pinit += k+5;
+	if(!p){
+	    SLOGL_vprint(SLOGL_LVL_INFO,"[worker %d] \
+La structure dnspacket recu est NULL.",ME->number);
+        return -1;
 	}
+	
+	iph = (struct iphdr *)nfq_ip_get_hdr(p->skb);
+	udph = (struct udphdr *)nfq_udp_get_hdr(p->skb);
+	
+	if( (iph->protocol != IPPROTO_UDP) && (udph->dest != 53 )){
+	    SLOGL_vprint(SLOGL_LVL_INFO,"[worker %d] \
+Le paquet reçu n'est pas une transaction DNS.",ME->number);
+	    return -1;
+	}
+	
+	nfq_ip_set_transport_header(p->skb, iph);
+	p->user_data = pktb_transport_header(p->skb) + UDP_HDR_SIZE;
+	
+	if(!p->user_data){
+	    SLOGL_vprint(SLOGL_LVL_INFO,"[worker %d] \
+Le paquet reçu n'a pas de donnée utile.",ME->number);
+	    return -1;
+	}
+	
+	return 0;
+}	
+
+
+/**
+ * DNSPACKET_PARSE_HEADER
+ * Parse l'entête DNS (partie fixe de la requête).
+ *
+ * Valeurs de retour:
+ *  0 -> SUCCESS
+ *  1 -> ERROR
+ */
+int dnspacket_parse_header(dnspacket *p)
+{
+    if (!p){
+        SLOGL_vprint(SLOGL_LVL_INFO,"[worker %d] \
+La structure dnspacket recu est NULL.",ME->number);
+        return 1;
+    }
+    
+	sprintf((char *__restrict__)(p->transaction_id),"%02x%02x",p->user_data[0],p->user_data[1]);
+	p->flags		= ((uint16_t)p->user_data[2]<<8) 
+	                    + (uint16_t)p->user_data[3];
+	p->nb_queries		= (int)*(p->user_data+4)+(int)*(p->user_data+5);	                
+	p->nb_replies		= (int)*(p->user_data+6) + (int)*(p->user_data+7);
+	p->nb_author_reply	= (int)*(p->user_data+8) + (int)*(p->user_data+9);
+	p->nb_add_reply		= (int)*(p->user_data+10) + (int)*(p->user_data+11);
+	
 	return 0;
 }
-void affiche_queries(dnspacket *p) {
 
-	for(int i = 0;i<p->nb_queries;i++) {
-		fprintf(stderr,"Query %d: %s\n",i,p->queries[i].qname);
+	
+
+/**
+ * DNSPACKET_PARSE_HEADER
+ * Parse l'entête DNS (partie fixe de la requête).
+ *
+ * Valeurs de retour:
+ *  0 -> SUCCESS
+ *  1 -> ERROR
+ */
+int dnspacket_parse_query(dnspacket *p)
+{
+    unsigned char *pinit = NULL;
+	int i=0, nb_char=0, size_char = 0;
+	
+   /** 
+    * Si la trame est une réponse DNS 
+    * mais ne contient pas de champ ANSWER, on drop. 
+    * Trop compliqué à parser et non pertinent
+    */	
+	if((p->flags == 0x8180 || p->flags == 0x8580) && p->nb_replies == 0){
+	   SLOGL_vprint(SLOGL_LVL_INFO,"[worker %d] \
+La trame DNS ne sera pas traité (flags_answer = 1) \
+mais pas de réponse.",ME->number);
+	    return -1;
 	}
+	
+    /**
+     * Conversion des requetes en string & remplissage des structures 
+	 */
+	pinit = p->user_data + DNS_FIX_HDR_SIZE;
+	
+	while(*(pinit+size_char) != 0x00 && size_char < 253) {
+		nb_char = (int)*(pinit+size_char);
+		
+		for(i=0;i<nb_char;i++){
+			p->query.qname[size_char] = (unsigned char) *(pinit + size_char + 1); 
+			size_char++;
+		}
+		p->query.qname[size_char] = '.';
+	}
+	
+	p->query.qname[size_char]	= '\0';
+	p->query.length	            = size_char;
+	p->query.qtype	            = *(pinit + size_char + 2);
+	p->query.qclass	            = *(pinit + size_char + 4);
+	
+	SLOGL_vprint(SLOGL_LVL_DEBUG,"[worker %d] \
+Réception de la requete DNS: QTYPE=%c QCLASS=%c QUERY=%s.",
+ME->number, p->query.qtype, p->query.qclass, p->query.qname);
 
+	return 0;
 }
 
+
+
+int dnspacket_parse(dnspacket *p){
+    if ( dnspacket_prepare_struct(p) != 0) goto error;
+    if ( dnspacket_parse_header(p) != 0) goto error;
+    if ( dnspacket_parse_query(p) != 0) goto error;
+    return 0;
+    
+    error:
+        return -1;
+}

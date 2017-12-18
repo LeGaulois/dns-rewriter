@@ -29,6 +29,10 @@ struct controller {
     
     /*SHARED*/
     worker          **workerstab;
+    
+    /*SECURITY*/
+    char            *username;
+    char            *groupname;
 };
 
 
@@ -44,9 +48,11 @@ int controller_init_tab_workers(struct controller *dp);
 void controller_configure_signaux(void);
 void controller_gestionnaire_signal(int numero, 
             siginfo_t *info, void*data);
-void controller_kill_worker(controller *dp, int signal);
+void controller_kill_worker(controller *dp);
 void controller_fork_worker(controller *dp, int position);
-
+void controller_manager_endofworker(controller *ctrl, int pid);
+int controller_set_securite(controller *ctrl);
+void controller_restart_worker(controller *ctrl, pid_t pid);
     
 /* FONCTIONS STATIQUES (POUR INFO)
 statis int controller_init_worker(controller *dp, int queue_id,

@@ -31,21 +31,9 @@
 #include "tools.h"
 #include "parser_tools.h"
 
-uint32_t ip_addr_invert(uint32_t ipaddr) {
-	uint32_t inverted = 0;
-	uint32_t result[4];
-	for (int i = 0; i<4;i++) {
-		result[i] = get_n_bits_from_uint32t(ipaddr,i*8,8);
-	}
-	
-	inverted = (result[0]<<24)+(result[1]<<16)+ (result[2]<<8)+(result[3]); 
-	return inverted;
-}
 
-/*void pktb_change_to_nlh(struct pkt_buff *pktb, void *data) {
-	memcpy(data,pktb->data,pktb->len);
-}
-*/
+
+
 
 void strtostr_replace(char* regex, char* replacement, char* search_in, char* write_to) {
 

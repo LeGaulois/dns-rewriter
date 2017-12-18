@@ -167,15 +167,13 @@ int hashtable_add_entry_from_line(hashtable *ht, char line[], uint8_t type){
     if(dns==NULL) return -1;
     
     size_str = strcspn(line,"\t ");
-    if(type == HT_NORMAL_FILE) dns->query = strndup(line, size_str);
     if(type == HT_INVERT_FILE) dns->rewrited = strndup(line, size_str);
-    
+    else dns->query = strndup(line, size_str);
     line = line + size_str;
     size_str = strspn(line, "\t ");
     line = line + size_str;
-    if(type == HT_NORMAL_FILE) dns->rewrited = strndup(line, strlen(line));
     if(type == HT_INVERT_FILE) dns->query = strndup(line, strlen(line));
-
+    else dns->rewrited = strndup(line, strlen(line));
     
     if((dns->query==NULL)||(dns->rewrited==NULL)) return -1;
     hashtable_add_element(ht, dns->query, (void *)(dns));
