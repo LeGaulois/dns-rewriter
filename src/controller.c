@@ -135,6 +135,7 @@ void controller_free(controller **ctrl, int close_shm_link){
     free((*ctrl)->log_general_prefix);
     free((*ctrl)->log_rewrite_prefix);
     free((*ctrl)->username);
+    free((*ctrl)->groupname);
     controller_free_all_worker_except(*ctrl,NULL);
     free((*ctrl)->workerstab);
     free(*ctrl); 
