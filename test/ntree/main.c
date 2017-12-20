@@ -98,6 +98,7 @@ int main(){
      */
     for (i=0;i<nbcontrol;i++){
         convert_ipadress_to_binary(control[i].ipaddress, test );
+        fprintf(stderr,"%s\n",uint32_t_to_char(*test));
         str = (char *)(ntree_root_lookup(root,*test)); 
         
         if((str==NULL)||(strcmp(str, control[i].popdesired)!=0)){

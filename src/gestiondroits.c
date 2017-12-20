@@ -110,13 +110,14 @@ sur cette version de noyau.");
     if (cap_set_proc(caps) == -1){
         SLOGL_vprint(SLOGL_LVL_ERROR,
 "[controller] Erreur d'application des privileges au processus");
+        return -1;
     }
 
     prctl(PR_SET_KEEPCAPS, 1, 0, 0, 0);
     if (cap_free(caps) == -1){
         SLOGL_vprint(SLOGL_LVL_ERROR,
 "[controller] Erreur de libéation de la liste des privileges.");
-        return 1;
+        return -1;
     }
     
     

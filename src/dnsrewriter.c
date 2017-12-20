@@ -192,6 +192,7 @@ int rewrite_dns_response(dnspacket* packet, unsigned char* query,
 	char *finalrewrite	    = NULL;
 	struct iphdr *iph	    = NULL;
 	void *ntree_finalnode	= NULL;
+	char *ipaddress         = NULL;
 	
 	finalrewrite    = calloc(253,sizeof(char));
 	to_insert		= calloc(253,sizeof(char));
@@ -201,20 +202,24 @@ int rewrite_dns_response(dnspacket* packet, unsigned char* query,
 	 * Récupération du label
 	 */
 	iph = (struct iphdr *)nfq_ip_get_hdr(packet->skb);
-	ntree_finalnode = (char *)(ntree_root_lookup(ROOT,iph->daddr));
+	
+	ntree_finalnode = (char *)(ntree_root_lookup(ROOT, ntohl(iph->daddr)) );
+	
+	ipaddress = convert_u32_ipaddress_tostr(iph->daddr);
 	
 	if(!ntree_finalnode){
 	     SLOGL_vprint(SLOGL_LVL_INFO,
         "[worker %d, ID %s] Aucun pop trouvé pour l'adresse IP %s",
-         ME->number, packet->transaction_id, uint32_t_to_char(iph->daddr));
+         ME->number, packet->transaction_id, ipaddress);
+         free(ipaddress);
          return -1;
 	}
 	
 	SLOGL_vprint(SLOGL_LVL_INFO,
         "[worker %d, ID %s] l'adresse IP %s appartient au pop %s.",
          ME->number, packet->transaction_id,
-         uint32_t_to_char(iph->daddr), ntree_finalnode);
-         
+         ipaddress, ntree_finalnode);
+    free(ipaddress);  
 	
 	strtostr_replace(ntree_finalnode,"$pop",
 	        (char *)(packet->query.qname),finalrewrite);
@@ -258,17 +263,19 @@ int rewrite_dns_query (dnspacket* packet, unsigned char* query,
 	to_insert	    = calloc(253,sizeof(char));
 		
 	iph = (struct iphdr *)nfq_ip_get_hdr(packet->skb);
-	ntree_finalnode = (char *)(ntree_root_lookup(ROOT,iph->daddr));
+	ntree_finalnode = (char *)(ntree_root_lookup(ROOT,ntohl(iph->saddr) ));
 	
+	ipaddress = convert_u32_ipaddress_tostr(iph->saddr);
 	
 	if(!ntree_finalnode){
 	     SLOGL_vprint(SLOGL_LVL_INFO,
            "[worker %d, ID %s] Aucun pop trouvé pour l'adresse IP %s",
-            ME->number, packet->transaction_id, uint32_t_to_char(iph->daddr));
-         return -1;
+            ME->number, packet->transaction_id, ipaddress);
+        free(ipaddress);
+        return -1;
 	}
 	
-	ipaddress = convert_u32_ipaddress_tostr(iph->daddr);
+	
 	SLOGL_vprint(SLOGL_LVL_INFO,
         "[worker %d, ID %s] l'adresse IP %s appartient au pop %s.",
          ME->number, packet->transaction_id, ipaddress, ntree_finalnode);

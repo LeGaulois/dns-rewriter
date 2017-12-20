@@ -54,8 +54,8 @@ void worker_main(worker *wk){
      * de fichier standarts (stderr, stdout, stdin)
      */
     close(STDIN_FILENO);
-    close(STDOUT_FILENO);
-    close(STDERR_FILENO);
+    //close(STDOUT_FILENO);
+    //close(STDERR_FILENO);
     
     ret = interceptor_worker(wk->nfqueue_id);
 

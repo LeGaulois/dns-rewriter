@@ -92,14 +92,24 @@ static int handle_dns(dnspacket* p, uint32_t payload_len, unsigned char* payload
         result_rewrite = rewrite_dns(p,
             p->query.qname,HASHTABLE_Q,REWRITE_Q);
     }
-     else return -1;
+    else return -1;
      
-     if(result_rewrite == 1) { 	
+    if(result_rewrite == 1) { 	
         set_checksum_to_zero(p->skb);
         memcpy(payload_data,p->skb->data,p->skb->len);
+        
+        SLOGL_vprint(SLOGL_LVL_INFO,
+        "[worker %d, ID %s] Réécriture reussie, copie du nouveau \
+paquet dans la file.",
+         ME->number, p->transaction_id);
         return result_rewrite;
-     }
-     else return 0;
+    }
+    else{
+        SLOGL_vprint(SLOGL_LVL_INFO,
+        "[worker %d, ID %s] Erreur lors de la réécriture.\
+Forward du paquet initial.",ME->number, p->transaction_id);
+        return -2;
+    }
 } 
 
 
@@ -190,7 +200,7 @@ La trame reçu ne sera pas traitée.",ME->number);
 	    result = handle_dns(p,payload_len,payload_data,
 	            REWRITE_Q);
 	            
-        if(result == 0){
+        if(result < 0){
 	        nfq_set_verdict(qh,id, NF_ACCEPT,0,0);
         }
 	    else{
@@ -202,7 +212,7 @@ La trame reçu ne sera pas traitée.",ME->number);
         result = handle_dns(p,payload_len,
             payload_data, REWRITE_R);
             
-	    if(result == 0) nfq_set_verdict(qh,id, NF_ACCEPT,0,0);
+	    if(result < 0) nfq_set_verdict(qh,id, NF_ACCEPT,0,0);
 	    else{
 	        nfq_set_verdict(qh,id,NF_ACCEPT,payload_len,payload_data);
      	}

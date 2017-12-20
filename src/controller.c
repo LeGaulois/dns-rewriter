@@ -579,11 +579,11 @@ static int controller_get_groupname(controller *ctrl, config_t *cfg){
         }
         
         ctrl->groupname = calloc(len_str, sizeof(char));
-        strncpy( ctrl->username, str_tmp, len_str-1 );
+        strncpy( ctrl->groupname, str_tmp, len_str-1 );
         
         SLOGL_vprint(SLOGL_LVL_INFO,
         "[controller] %s: groupname -> %s",
-         config_error_file(cfg), str_tmp);
+         config_error_file(cfg), ctrl->groupname);
         return 0;
     }
     SLOGL_vprint(SLOGL_LVL_INFO,
@@ -613,6 +613,19 @@ int controller_set_securite(controller *ctrl){
         return -1;
     }
     
+    if( ctrl->groupname ){
+        executif_gid = convert_groupname_to_gid(ctrl->groupname);
+        
+        if(setgid(executif_gid)!=0){
+            SLOGL_vprint(SLOGL_LVL_ERROR,
+"[controller] Erreur lors de la définition du nouveau groupe effectif: %s", strerror(errno));
+            return -1;
+        }
+        
+        SLOGL_vprint(SLOGL_LVL_INFO,
+"[controller] Le nouveau groupe effectif est %s.", ctrl->groupname);
+    }
+    
     if( ctrl->username ){
         executif_uid = convert_username_to_uid(ctrl->username);
         if(setuid(executif_uid)!=0){
@@ -626,17 +639,7 @@ effectif.");
 "[controller] Le nouvel utilisateur effectif est %s.", ctrl->username);
     }
     
-    if( ctrl->groupname ){
-        executif_gid = convert_groupname_to_gid(ctrl->groupname);
-        if(setgid(executif_gid)!=0){
-                       SLOGL_vprint(SLOGL_LVL_ERROR,
-"[controller] Erreur lors de la définition du nouveau groupe effectif.");
-            return -1;
-        }
-        
-        SLOGL_vprint(SLOGL_LVL_INFO,
-"[controller] Le nouveau groupe effectif est %s.", ctrl->groupname);
-    }
+    
     
     set_proc_capabilities_after_seteuid();
     return 0;
