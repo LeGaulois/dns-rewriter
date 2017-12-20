@@ -172,13 +172,24 @@ Erreur de creation de la structure dnspacket.",ME->number);
 static int handle_packet(struct nfq_q_handle *qh, struct nfgenmsg *nfmsg, struct nfq_data *nfad, void *data) 
 {
 	if(!nfad) return 0;
-	
+	struct nfqnl_msg_packet_hdr *ph;
 	dnspacket *p = NULL;
 	unsigned char* payload_data = NULL;
 	int id = 0;
 	uint32_t payload_len = 0;
 	int result = 0, result_parsing =0;
 	
+	
+	ph = nfq_get_msg_packet_hdr(nfad);
+	
+	/**
+	 * On récupere l'ID du packet
+	 * --> nécessaire pour envoyer la decision 
+	 * à appliquer sur le paquet (ACCEPT, DROP,...)
+	 */
+	if (ph) {
+		id = ntohl(ph->packet_id);
+	}
     payload_len = handle_getdata(nfad, &p,&payload_data);
 
 	if(payload_len <= 0){
@@ -195,26 +206,35 @@ La trame reçu ne sera pas traitée.",ME->number);
 	    return 1;
 	}
 	
+	if(p->nb_queries>1){
+	    SLOGL_vprint(SLOGL_LVL_INFO,"[worker %d, ID:%s] \
+La trame reçu ne sera pas traitée car elle comporte \
+plus de une question.",ME->number, p->transaction_id);
+        nfq_set_verdict(qh,id, NF_ACCEPT,0,0);
+        return 0;
+	}
 	
 	if(p->nb_queries != 0 && p->nb_replies == 0)  {
 	    result = handle_dns(p,payload_len,payload_data,
 	            REWRITE_Q);
 	            
         if(result < 0){
-	        nfq_set_verdict(qh,id, NF_ACCEPT,0,0);
+	        result = nfq_send_verdict(qh,id, NF_ACCEPT,0,0, p);
         }
-	    else{
-	        nfq_set_verdict(qh,id,NF_ACCEPT,
-	            payload_len,payload_data);
+        else{
+	        result = nfq_send_verdict(qh,id,NF_ACCEPT,
+	            payload_len,payload_data, p);
 	   }
 	}
 	else if(p->nb_queries != 0 && p->nb_replies != 0) {
         result = handle_dns(p,payload_len,
             payload_data, REWRITE_R);
             
-	    if(result < 0) nfq_set_verdict(qh,id, NF_ACCEPT,0,0);
+	    if(result < 0){
+	        nfq_send_verdict(qh,id, NF_ACCEPT,0,0, p);
+	    } 
 	    else{
-	        nfq_set_verdict(qh,id,NF_ACCEPT,payload_len,payload_data);
+	        nfq_send_verdict(qh,id,NF_ACCEPT,payload_len,payload_data, p);
      	}
     }
 	else {
@@ -223,6 +243,36 @@ La trame reçu ne sera pas traitée.",ME->number);
 	destroy_dnspacket(p);
 
 	return result;
+}
+
+
+/**
+ * NFQ_SEND_VERDICT
+ * Frontal à la fonction @nfq_set_verdict permettant
+ * la gestion des logs sans alourdir la fonction appelante
+ *
+ * Valeurs de retour
+ *  0 --> SUCCESS
+ * -1 sinon
+ */
+int nfq_send_verdict(struct nfq_q_handle *qh, uint32_t id,
+    uint32_t verdict, uint32_t datalen,
+    const unsigned char *buf, dnspacket *p)
+{
+    int ret = -1;
+    
+    ret = nfq_set_verdict(qh,id, verdict, datalen,buf);
+    
+    if(ret != 0){
+        SLOGL_vprint(SLOGL_LVL_INFO,"[worker %d] \
+Echec d'envoie du verdict: %s",ME->number, strerror(errno));
+    }
+    else{
+        SLOGL_vprint(SLOGL_LVL_INFO,"[worker %d] \
+L'envoie du verdict a reussi.",ME->number);
+    }
+    
+    return ret;
 }
 
 

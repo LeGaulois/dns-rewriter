@@ -2,11 +2,12 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <string.h>
+#include <arpa/inet.h>
 
 #include <libmnl/libmnl.h>
 #include <linux/netfilter.h>
 #include <linux/netfilter/nfnetlink.h>
-#include <arpa/inet.h>
+
 
 #include <linux/types.h>
 #include <linux/netfilter/nfnetlink_queue.h>
@@ -68,7 +69,7 @@ void move_rappel_bytes(dnspacket* p, char* new_str)
 	    k++;
 	    
 	    /** 
-	     * En théorie, pas besoin de décaler le 1èer rappel
+	     * En théorie, pas besoin de décaler le 1 rappel
 	     *  (entête UDP et DNS fixes)
 	     * On ajuste la reference du pointeur de compression
 	     * en fonction de la différence de longueur du champ

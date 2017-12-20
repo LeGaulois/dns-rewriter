@@ -1,6 +1,6 @@
 CC=gcc
-CFLAGS=-Wall -g -fstack-protector-all -Wstack-protector -I ./include -I ../nfqueu/libnl-nft/include/ 
-//CFLAGS= -Wall -Wextra -g -fstack-protector-all -Wstack-protector -Wconversion -Wsign-conversion -Wformat-security -Werror -pie -fPIE -ftrapv -D_FORTIFY_SOURCE=2 -I ./include 
+CFLAGS=-Wall -g -fstack-protector-all -Wstack-protector -I ./include 
+
 
 test_tree: iptools tools treebinary
 	$(CC) $(CFLAGS) -lm ntree_binary.o tools.o iptools.o  test/ntree/main.c -o test/ntree/testntree
@@ -8,8 +8,9 @@ test_tree: iptools tools treebinary
 test_hashtable: hash dns_t list
 	$(CC) $(CFLAGS) -lm -lcrypto hash.o dns_translation.o list.o test/hashtable/main.c -o test/hashtable/hashtable
 
-main: gestiondroits dnsparser dnsrewriter parsertools interceptor controller dns_t list logger configfile worker treebinary iptools tools hash
-	$(CC) $(CFLAGS) gestiondroits.o interceptor.o dns_translation.o list.o  ntree_binary.o configfile.o workers.o iptools.o hash.o tools.o logger.o controller.o dnsparser.o dnsrewriter.o parser_tools.o -lnftnl -lm -lcrypto -lpthread -lrt -lconfig -lmnl -lcap -lnetfilter_queue test/main/main.c -o test/main/main	
+all: gestiondroits dnsparser dnsrewriter parsertools interceptor controller dns_t list logger configfile worker treebinary iptools tools hash
+	$(CC) $(CFLAGS) gestiondroits.o interceptor.o dns_translation.o list.o  ntree_binary.o configfile.o workers.o iptools.o hash.o tools.o logger.o controller.o dnsparser.o dnsrewriter.o parser_tools.o -lnftnl -lm -lcrypto -lpthread -lrt -lconfig -lmnl -lcap -lnetfilter_queue src/main.c -o dns-rewriter
+
 
 dnsparser:
 	$(CC) $(CFLAGS) -c src/dnsparser.c
