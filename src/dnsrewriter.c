@@ -236,7 +236,9 @@ int rewrite_dns_response(dnspacket* packet, unsigned char* query,
         "[worker %d, ID %s] Impossible de trouver la query d'origine.",
          ME->number, packet->transaction_id);
 	}
-
+	
+    free(finalrewrite);
+	free(to_insert);
     return -1;
 }
 
