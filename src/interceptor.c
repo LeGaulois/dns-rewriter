@@ -183,7 +183,7 @@ static int handle_packet(struct nfq_q_handle *qh, struct nfgenmsg *nfmsg, struct
 
 	if(payload_len <= 0){
 	    nfq_set_verdict(qh,id, NF_ACCEPT,0,0);
-	    return MNL_CB_OK;
+	    return 1;
 	}
 
 	result_parsing = dnspacket_parse(p);
@@ -192,7 +192,7 @@ static int handle_packet(struct nfq_q_handle *qh, struct nfgenmsg *nfmsg, struct
 	    SLOGL_vprint(SLOGL_LVL_ERROR,"[worker %d] \
 La trame reçu ne sera pas traitée.",ME->number);
         nfq_set_verdict(qh,id, NF_ACCEPT,0,0);
-	    return MNL_CB_OK;
+	    return 1;
 	}
 	
 	

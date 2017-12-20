@@ -6,6 +6,7 @@
 #include <libmnl/libmnl.h>
 #include <linux/netfilter.h>
 #include <linux/netfilter/nfnetlink.h>
+#include <arpa/inet.h>
 
 #include <linux/types.h>
 #include <linux/netfilter/nfnetlink_queue.h>
