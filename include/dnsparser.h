@@ -10,11 +10,6 @@ sur les paquets DNS à traiter.
 Certaines informations ne sont pas parsées car inutiles 
 pour notre utilisation (c'est le cas du type de la requête etc)
 
-On utilisera pour stocker les requêtes multiples un 
-tableau de structures.
-Exemple :  sur des querys :  si 3 queries, 
-queries[0/1/2] pointeront chacun sur une structure DNS_QUERY 
-qui contiendront un attribut qname.
 
 Pour notre programme, on ne se soucie pas des réponses DNS.
 */
@@ -29,9 +24,22 @@ struct _DNS_QUERY {
 	unsigned char   qclass;
 };
 
+/**
+ * _DNS_PACKET
+ * Structure représentant un paquet DNS
+ * *@skb : pointeur sur le pkt_buff original
+ * @user_data : pointeur sur le payload UDP, à savoir le
+ * premier octet du message DNS
+ * @transaction_id : ID de transaction DNS
+ * @flags : Flags du message
+ * @nb_XXXX : nombre d'éléments du paquets
+ * @query : élement de type _DNS_QUERY, représentant la requête
+ */
+
 struct _DNS_PACKET {
 	struct pkt_buff *skb;
 	uint8_t         *user_data;
+	uint8_t		dns_len;
 	
 	unsigned char   *transaction_id;
 	uint16_t        flags;
@@ -47,6 +55,7 @@ struct _DNS_PACKET {
 
 dnspacket* init_struct_dnspacket();
 void destroy_dnspacket(dnspacket* dnsp);
+void set_dns_len(dnspacket *p);
 int dnspacket_prepare_struct (dnspacket *p);
 int dnspacket_parse_header(dnspacket *p);
 int dnspacket_parse_query(dnspacket *p);
