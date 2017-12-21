@@ -42,6 +42,7 @@ dnspacket* init_struct_dnspacket()
 	
 	p->skb              = NULL;
 	p->user_data        = NULL;
+	p->dns_len	    = 0;
     p->transaction_id 	= calloc(8,sizeof(char));
     p->flags 		    = 0;
 	p->nb_queries       = 0;
@@ -67,6 +68,20 @@ void destroy_dnspacket(dnspacket* dnsp) {
     free(dnsp->transaction_id);
 	free(dnsp->query.qname);
 	free(dnsp);
+}
+
+
+/** 
+ *  SET_DNS_LEN
+ * Renvoie la longueur du message PAYLOAD DNS
+ */
+ 
+void set_dns_len(dnspacket *p) {
+
+	uint8_t *test = pktb_transport_header(p->skb);
+	uint16_t udplen = ((uint16_t)test[4] <<8) + ((uint16_t)test[5]);
+	p->dns_len = (uint8_t)udplen - UDP_HDR_SIZE;
+
 }
 
 
@@ -99,8 +114,8 @@ La structure dnspacket recu ne possede pas de skbuff.",ME->number);
 	iph = (struct iphdr *)nfq_ip_get_hdr(p->skb);
 	
 	nfq_ip_set_transport_header(p->skb, iph);
-	udph = (struct udphdr *)nfq_udp_get_hdr(p->skb);
 	
+	udph = pktb_transport_header(p->skb);
 	if(!iph){
 	    SLOGL_vprint(SLOGL_LVL_INFO,"[worker %d] \
 Impossible de récupérer l'entête IP.",ME->number);
@@ -120,10 +135,17 @@ Le paquet reçu n'est pas une transaction DNS.",ME->number);
 	}
 	
 	p->user_data = pktb_transport_header(p->skb) + UDP_HDR_SIZE;
+	set_dns_len(p);	
 	
 	if(!p->user_data){
 	    SLOGL_vprint(SLOGL_LVL_INFO,"[worker %d] \
 Le paquet reçu n'a pas de donnée utile.",ME->number);
+	    return -1;
+	}
+	
+	if(p->dns_len == 0){
+	    SLOGL_vprint(SLOGL_LVL_INFO,"[worker %d] \
+La longueur du payload DNS n'a pas pu être calculé.",ME->number);
 	    return -1;
 	}
 	
@@ -150,10 +172,14 @@ La structure dnspacket recu est NULL.",ME->number);
 	sprintf((char *__restrict__)(p->transaction_id),"%02x%02x",p->user_data[0],p->user_data[1]);
 	p->flags		= ((uint16_t)p->user_data[2]<<8) 
 	                    + (uint16_t)p->user_data[3];
-	p->nb_queries		= (int)*(p->user_data+4)+(int)*(p->user_data+5);	                
-	p->nb_replies		= (int)*(p->user_data+6) + (int)*(p->user_data+7);
-	p->nb_author_reply	= (int)*(p->user_data+8) + (int)*(p->user_data+9);
-	p->nb_add_reply		= (int)*(p->user_data+10) + (int)*(p->user_data+11);
+	p->nb_queries		= ((uint16_t)p->user_data[4]<<8) 
+	                    + (uint16_t)p->user_data[5];              
+	p->nb_replies		= ((uint16_t)p->user_data[6]<<8) 
+	                    + (uint16_t)p->user_data[7];
+	p->nb_author_reply	= ((uint16_t)p->user_data[8]<<8) 
+	                    + (uint16_t)p->user_data[9];
+	p->nb_add_reply		= ((uint16_t)p->user_data[10]<<8) 
+	                    + (uint16_t)p->user_data[11];
 	
 	return 0;
 }

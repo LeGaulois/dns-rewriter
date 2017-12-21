@@ -107,7 +107,7 @@ paquet dans la file.",
     else{
         SLOGL_vprint(SLOGL_LVL_INFO,
         "[worker %d, ID %s] Erreur lors de la réécriture.\
-Forward du paquet initial.",ME->number, p->transaction_id);
+Forward du paquet initial. RETOUR : %d.",ME->number, p->transaction_id,result_rewrite);
         return -2;
     }
 } 
@@ -172,14 +172,14 @@ Erreur de creation de la structure dnspacket.",ME->number);
 static int handle_packet(struct nfq_q_handle *qh, struct nfgenmsg *nfmsg, struct nfq_data *nfad, void *data) 
 {
 	if(!nfad) return 0;
+
 	struct nfqnl_msg_packet_hdr *ph;
 	dnspacket *p = NULL;
 	unsigned char* payload_data = NULL;
 	int id = 0;
 	uint32_t payload_len = 0;
 	int result = 0, result_parsing =0;
-	
-	
+
 	ph = nfq_get_msg_packet_hdr(nfad);
 	
 	/**
@@ -190,7 +190,8 @@ static int handle_packet(struct nfq_q_handle *qh, struct nfgenmsg *nfmsg, struct
 	if (ph) {
 		id = ntohl(ph->packet_id);
 	}
-    payload_len = handle_getdata(nfad, &p,&payload_data);
+   	payload_len = handle_getdata(nfad, &p,&payload_data);
+
 
 	if(payload_len <= 0){
 	    nfq_set_verdict(qh,id, NF_ACCEPT,0,0);
@@ -215,16 +216,17 @@ plus de une question.",ME->number, p->transaction_id);
 	}
 	
 	if(p->nb_queries != 0 && p->nb_replies == 0)  {
-	    result = handle_dns(p,payload_len,payload_data,
+		result = handle_dns(p,payload_len,payload_data,
 	            REWRITE_Q);
 	            
-        if(result < 0){
+       	    if(result < 0){
 	        result = nfq_send_verdict(qh,id, NF_ACCEPT,0,0, p);
-        }
-        else{
-	        result = nfq_send_verdict(qh,id,NF_ACCEPT,
-	            payload_len,payload_data, p);
-	   }
+            }
+
+	    else{
+		nfq_set_verdict(qh,id,NF_ACCEPT,
+	            payload_len,payload_data);
+	    }
 	}
 	else if(p->nb_queries != 0 && p->nb_replies != 0) {
         result = handle_dns(p,payload_len,
@@ -241,7 +243,6 @@ plus de une question.",ME->number, p->transaction_id);
 	    result = -1;
 	}
 	destroy_dnspacket(p);
-
 	return result;
 }
 

@@ -48,24 +48,14 @@ extern worker *ME;
  * en fonction de la différence de longueur du champ
  * query réécris
  */
-void move_rappel_bytes(dnspacket* p, char* new_str)
+ 
+void move_rappel_bytes(dnspacket *p, char* new_str)
 {
-	struct iphdr *iph = NULL;
-	struct udphdr *udph = NULL;
-	uint8_t *dnspayload_data	= NULL;
-	uint8_t dnspayload_length	= 0;
-	int i,k=0;
-	
-	iph = (struct iphdr *)nfq_ip_get_hdr(p->skb);
-	nfq_ip_set_transport_header(p->skb, iph);
-	
-	udph = (struct udphdr *)nfq_udp_get_hdr(p->skb);
-	dnspayload_data = pktb_transport_header(p->skb) + UDP_HDR_SIZE + DNS_FIX_HDR_SIZE;
-	dnspayload_length = udph->len - UDP_HDR_SIZE - DNS_FIX_HDR_SIZE;
-	
-
-	for(i=0;i<dnspayload_length-1;i++) {
-	  if(dnspayload_data[i] == 0xc0) {
+	int i,k=0;	
+	for(i=0;i<p->dns_len;i++) {
+	  //fprintf(stderr,"test :%02x - ",dnspayload_data[i]);
+	  if(p->user_data[i] == 0xc0) {
+	  
 	    k++;
 	    
 	    /** 
@@ -77,7 +67,7 @@ void move_rappel_bytes(dnspacket* p, char* new_str)
 	     */
 	    if(k>1) {
 	      int diff = p->query.length - get_len_qfmt(new_str);
-	      dnspayload_data[i+1] -= diff;
+	      p->user_data[i+1] -= diff;
 	    }
 	  }
 	}
@@ -94,17 +84,11 @@ void move_rappel_bytes(dnspacket* p, char* new_str)
  */
 int set_checksum_to_zero(struct pkt_buff *pkb) 
 {
-    struct iphdr *iph = NULL;
-    uint8_t *udphdr_checksum = NULL;
-    
 
+    	uint8_t *udphdr_checksum = NULL;
+    
 	if(!pkb) return -1;
 	
-	iph = (struct iphdr *) nfq_ip_get_hdr(pkb);
-	if(!iph) return -1;
-	
-	
-	nfq_ip_set_transport_header(pkb,iph);
 	udphdr_checksum = pktb_transport_header(pkb);
 
 	if(!udphdr_checksum) return -1;
@@ -124,10 +108,6 @@ int set_checksum_to_zero(struct pkt_buff *pkb)
 int replace_query(dnspacket *p, char* to_insert, uint8_t type) 
 {
 	int result;
-	struct iphdr *iph = NULL;
-	
-	iph = (struct iphdr *)nfq_ip_get_hdr(p->skb);
-	nfq_ip_set_transport_header(p->skb, iph);
 	
 	/**
 	 * loffset demandé par mangle correspond à la distance
@@ -135,13 +115,13 @@ int replace_query(dnspacket *p, char* to_insert, uint8_t type)
 	 * et notre match
 	 * 12 -> taille entête DNS
 	 */
-	result = nfq_udp_mangle_ipv4(p->skb,12,p->query.length, 
+	result = nfq_udp_mangle_ipv4(p->skb,DNS_FIX_HDR_SIZE,p->query.length, 
 	    to_insert, get_len_qfmt(to_insert) );
 	
-	if( (result == 1)&&(type == REWRITE_R)){
+	if( (result == 1) && (type == REWRITE_R) ){
 	  /*On décale les octets de RAPPEL si c'est une réponse*/
         move_rappel_bytes(p,to_insert);
-        return 0;
+        return 1;
 	}
 	return result;
 }
