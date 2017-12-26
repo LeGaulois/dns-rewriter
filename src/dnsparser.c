@@ -3,6 +3,7 @@
 #include <unistd.h>
 #include <string.h>
 
+
 #include <netinet/in.h>
 #include <libmnl/libmnl.h>
 #include <linux/netfilter.h>
@@ -21,6 +22,8 @@
 #include "dnsparser.h"
 #include "workers.h"
 #include "logger.h"
+#include "parser_tools.h"
+
 
 
 extern worker *ME;
@@ -115,7 +118,7 @@ La structure dnspacket recu ne possede pas de skbuff.",ME->number);
 	
 	nfq_ip_set_transport_header(p->skb, iph);
 	
-	udph = pktb_transport_header(p->skb);
+	udph = (struct udphdr*)pktb_transport_header(p->skb);
 	if(!iph){
 	    SLOGL_vprint(SLOGL_LVL_INFO,"[worker %d] \
 Impossible de récupérer l'entête IP.",ME->number);
@@ -230,12 +233,132 @@ mais pas de réponse.",ME->number);
 	p->query.length	            = size_char;
 	p->query.qtype	            = *(pinit + size_char + 2);
 	p->query.qclass	            = *(pinit + size_char + 4);
+	p->query.endquery           = pinit + size_char + 6;
 	
 	SLOGL_vprint(SLOGL_LVL_DEBUG,"[worker %d] \
 Réception de la requete DNS: QTYPE=%d QCLASS=%d QUERY=%s",
 ME->number, p->query.qtype, p->query.qclass, p->query.qname);
 
 	return 0;
+}
+
+    
+int* analyse_answer_for_rewrite_compression(dnspacket *p){
+    int *tab_rappel_byte = NULL;
+    int total_reps = 0, nb_compress=0, rep=0;
+    int p_actual = 0;
+    
+    total_reps = p->nb_replies+p->nb_author_reply +p->nb_add_reply;
+    tab_rappel_byte = calloc(total_reps*2, sizeof(int));
+    p_actual = DNS_FIX_HDR_SIZE;
+
+    /**
+     * On avance jusqu'à la fin du champ "name"
+     * de la section query
+     */
+    while( p->user_data[p_actual] != 0x00){
+        p_actual += 1;
+    }
+    p_actual += 5;
+    
+    while( (p_actual <= p->dns_len) && (rep<total_reps) ){
+        parse_answer(p, &p_actual, tab_rappel_byte, &nb_compress);
+        rep +=1;
+    }
+
+    return tab_rappel_byte;
+}
+
+
+/**
+ * PARSE_ANSWER
+ * Parse une réponse DNS à la recherche des octets de compression
+ * La position des bytes à modifier, éventuellement, sont placés
+ * dans le tableau @tab_rappel_byte
+ */
+dnsanswer parse_answer(dnspacket *p, int *p_actual, 
+                int *tab_rappel_byte, int *nb_compress)
+{
+    dnsanswer da;
+    int i;
+    
+    da.name = (unsigned char *)(p->user_data[*p_actual]);
+
+    if(da.name == 0x00) return da;
+    /**
+     * On parcours la réponse à la recherche
+     * du byte de rappel 0xC0 ou du byte de fin
+     * de chaîne 0x00
+     */
+     while( (p->user_data[*p_actual] != 0x00) &&    
+            (p->user_data[*p_actual] != 0xC0) )
+    {
+        *p_actual +=1;
+    }
+
+    /**
+     * byte de rappel dans le champ name.
+     * Le prochain octet annonce donc la position
+     * du pointeur sur le début de la chaîne de rappel. 
+     */
+    if( p->user_data[*p_actual] == 0xC0 ){
+        tab_rappel_byte[*nb_compress] = *p_actual + 1;
+        *nb_compress += 1;
+        *p_actual += 2;
+    }
+        
+    /**
+     * Sinon il s'agit de la fin "normale" du champ 
+     * name de la reponse
+     */
+    else{
+        *p_actual += 1;
+    }
+
+    da.atype = (uint16_t)( (uint8_t)(p->user_data[*p_actual] <<8 )) +
+               (uint16_t)( (uint8_t)(p->user_data[*p_actual + 1]));
+    *p_actual += 2;
+        
+        
+    da.aclass = (uint16_t)( (unsigned char)(p->user_data[*p_actual]) <<8 ) +
+                (uint16_t)( (unsigned char)(p->user_data[*p_actual + 1]));
+
+    *p_actual += 2;
+                
+    da.ttl = (uint32_t)( (unsigned char)(p->user_data[*p_actual]) <<24 ) +
+             (uint32_t)( (unsigned char)(p->user_data[*p_actual+1])<<16)+
+             (uint32_t)( (unsigned char)(p->user_data[*p_actual+2]) <<8 ) +
+             (uint32_t)( (unsigned char)(p->user_data[*p_actual+3]));
+
+    *p_actual += 4;
+        
+    da.datalen = (uint16_t)( (unsigned char)(p->user_data[*p_actual] <<8 ))
+                                            +
+                 (uint16_t)( (unsigned char)(p->user_data[*p_actual+1]));
+    *p_actual += 2;
+    
+    /**
+     * Si il ne s'agit pas d'un enregistrement de type A
+     * (qui peut tout à fait contenir le byte 0xC0 sans
+     * que cela ne soit de la compression, on analyse le
+     * contenu à la recherche d'un octet de compression
+     */
+    if(da.atype != 1){
+        for(i=0; i<da.datalen; i++){
+            if( p->user_data[*p_actual] == 0xC0 ){
+                tab_rappel_byte[*nb_compress] = *p_actual + 1;
+                *nb_compress += 1;
+                *p_actual += 1;
+                break;
+            }
+            *p_actual += 1;
+        }
+    }
+    else{
+        *p_actual += da.datalen;
+    }
+
+    return da;
 }
 
 

@@ -15,6 +15,7 @@ Pour notre programme, on ne se soucie pas des réponses DNS.
 */
 typedef struct _DNS_PACKET dnspacket;
 typedef struct _DNS_QUERY dnsquery;
+typedef struct _DNS_ANSWER dnsanswer;
 
 
 struct _DNS_QUERY {
@@ -22,7 +23,19 @@ struct _DNS_QUERY {
 	unsigned char   *qname;
 	unsigned char   qtype;
 	unsigned char   qclass;
+	unsigned char   *endquery;
 };
+
+
+struct _DNS_ANSWER {
+    unsigned char   *name;       
+    unsigned short int atype;
+	unsigned short int   aclass;
+	unsigned int    ttl;
+	unsigned short int    datalen;
+	unsigned char   *data;
+};
+
 
 /**
  * _DNS_PACKET
@@ -39,7 +52,7 @@ struct _DNS_QUERY {
 struct _DNS_PACKET {
 	struct pkt_buff *skb;
 	uint8_t         *user_data;
-	uint8_t		dns_len;
+	uint8_t		    dns_len;
 	
 	unsigned char   *transaction_id;
 	uint16_t        flags;
@@ -60,5 +73,8 @@ int dnspacket_prepare_struct (dnspacket *p);
 int dnspacket_parse_header(dnspacket *p);
 int dnspacket_parse_query(dnspacket *p);
 int dnspacket_parse(dnspacket *p);
+dnsanswer parse_answer(dnspacket *p, int *p_actual, 
+                int *tab_rappel_byte, int *nb_compress);
+int* analyse_answer_for_rewrite_compression(dnspacket *p);
 
 #endif

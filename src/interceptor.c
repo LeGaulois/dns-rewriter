@@ -80,7 +80,7 @@ void interceptor_free(interceptor *itcp){
  * HANDLE_DNS
  * Réécris les messages DNS reçus
  */
-static int handle_dns(dnspacket* p, uint32_t payload_len, unsigned char* payload_data, uint8_t type) 
+static int handle_dns(dnspacket* p, unsigned char* payload_data, uint8_t type) 
 { 
    int result_rewrite=0;
    
@@ -96,8 +96,8 @@ static int handle_dns(dnspacket* p, uint32_t payload_len, unsigned char* payload
      
     if(result_rewrite == 1) { 	
         set_checksum_to_zero(p->skb);
-        memcpy(payload_data,p->skb->data,p->skb->len);
-        
+        memcpy(payload_data,p->skb->data,pktb_len(p->skb));
+
         SLOGL_vprint(SLOGL_LVL_INFO,
         "[worker %d, ID %s] Réécriture reussie, copie du nouveau \
 paquet dans la file.",
@@ -142,7 +142,7 @@ Erreur recuperation du payload.",ME->number);
 	 * On doit ajouter de la mémoire supplémentaire à l'allocation
 	 * car le mangle dynamique n'est pas faisable
 	 */
-	pbuff = pktb_alloc(AF_INET, *payload_data, payload_len, 10); 
+	pbuff = pktb_alloc(AF_INET, *payload_data, payload_len, 50); 
 	
 	if (!pbuff){
 	    SLOGL_vprint(SLOGL_LVL_INFO,"[worker %d] \
@@ -192,7 +192,6 @@ static int handle_packet(struct nfq_q_handle *qh, struct nfgenmsg *nfmsg, struct
 	}
    	payload_len = handle_getdata(nfad, &p,&payload_data);
 
-
 	if(payload_len <= 0){
 	    nfq_set_verdict(qh,id, NF_ACCEPT,0,0);
 	    return 1;
@@ -215,28 +214,29 @@ plus de une question.",ME->number, p->transaction_id);
         return 0;
 	}
 	
-	if(p->nb_queries != 0 && p->nb_replies == 0)  {
-		result = handle_dns(p,payload_len,payload_data,
-	            REWRITE_Q);
-	            
-       	    if(result < 0){
-	        result = nfq_send_verdict(qh,id, NF_ACCEPT,0,0, p);
-            }
+    if(p->nb_queries != 0 && p->nb_replies == 0)  {
+        result = handle_dns(p,payload_data,REWRITE_Q);
+        payload_len = pktb_len(p->skb);
+	       
+        if(result < 0){
+	       result = nfq_send_verdict(qh,id, NF_ACCEPT,0,0, p);
+        }
 
 	    else{
-		nfq_set_verdict(qh,id,NF_ACCEPT,
-	            payload_len,payload_data);
+	        nfq_send_verdict(qh,id,NF_ACCEPT,
+	                payload_len,payload_data, p);
 	    }
 	}
 	else if(p->nb_queries != 0 && p->nb_replies != 0) {
-        result = handle_dns(p,payload_len,
-            payload_data, REWRITE_R);
-            
+        result = handle_dns(p,payload_data, REWRITE_R);
+        
+
 	    if(result < 0){
 	        nfq_send_verdict(qh,id, NF_ACCEPT,0,0, p);
 	    } 
 	    else{
-	        nfq_send_verdict(qh,id,NF_ACCEPT,payload_len,payload_data, p);
+	        nfq_send_verdict(qh,id,NF_ACCEPT,payload_len,
+	                payload_data, p);
      	}
     }
 	else {
@@ -264,7 +264,7 @@ int nfq_send_verdict(struct nfq_q_handle *qh, uint32_t id,
     
     ret = nfq_set_verdict(qh,id, verdict, datalen,buf);
     
-    if(ret != 0){
+    if(ret < 0){
         SLOGL_vprint(SLOGL_LVL_INFO,"[worker %d] \
 Echec d'envoie du verdict: %s",ME->number, strerror(errno));
     }

@@ -55,7 +55,7 @@ void worker_main(worker *wk){
      */
     close(STDIN_FILENO);
     close(STDOUT_FILENO);
-    close(STDERR_FILENO);
+    //close(STDERR_FILENO);
     
     ret = interceptor_worker(wk->nfqueue_id);
 

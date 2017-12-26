@@ -48,12 +48,10 @@ extern worker *ME;
  * en fonction de la différence de longueur du champ
  * query réécris
  */
- 
 void move_rappel_bytes(dnspacket *p, char* new_str)
 {
 	int i,k=0;	
 	for(i=0;i<p->dns_len;i++) {
-	  //fprintf(stderr,"test :%02x - ",dnspayload_data[i]);
 	  if(p->user_data[i] == 0xc0) {
 	  
 	    k++;
@@ -70,6 +68,24 @@ void move_rappel_bytes(dnspacket *p, char* new_str)
 	      p->user_data[i+1] -= diff;
 	    }
 	  }
+	}
+}
+
+
+/**
+ * MOVE_RAPPEL_BYTES
+ * Ajuste l'ensemble des pointeurs de compression
+ * en fonction de la différence de longueur du champ
+ * query réécris
+ */
+void move_all_rappel_bytes(dnspacket *p, char *str,int *bytes)
+{
+	int actual=1;	
+	
+	while(bytes[actual]!=0) {
+	   int diff = p->query.length - get_len_qfmt(str);
+	   p->user_data[ bytes[actual] ] -= diff;
+	   actual += 1;
 	}
 }
 
@@ -92,9 +108,36 @@ int set_checksum_to_zero(struct pkt_buff *pkb)
 	udphdr_checksum = pktb_transport_header(pkb);
 
 	if(!udphdr_checksum) return -1;
-	
 	udphdr_checksum[6] = 0x00;
 	udphdr_checksum[7] = 0x00;
+	
+	return 0;	
+}
+
+
+//int convertme(uint16_t num, uint)
+
+/**
+ * UDP_SET_LENGTH
+ * Fixe le champ length dans l'entête UDP.
+ */
+int udp_set_length(dnspacket *p) 
+{
+
+    uint8_t *udphdr;
+    
+	if(!p) return -1;
+	
+	udphdr = pktb_transport_header(p->skb);
+    
+	if(!udphdr) return -1;
+
+	uint32_t total_len = pktb_len(p->skb);
+	int size_ip = p->skb->data[0]& 0x0F;
+	uint16_t len = total_len - (size_ip*4);
+
+	udphdr[5] = len&0xFF;
+	udphdr[4] = len>>8;
 	
 	return 0;	
 }
@@ -108,19 +151,24 @@ int set_checksum_to_zero(struct pkt_buff *pkb)
 int replace_query(dnspacket *p, char* to_insert, uint8_t type) 
 {
 	int result;
-	
+	int *bytes = NULL;
 	/**
 	 * loffset demandé par mangle correspond à la distance
 	 * entre les data du paquet UDP  (et non le header udp)
 	 * et notre match
 	 * 12 -> taille entête DNS
 	 */
+
 	result = nfq_udp_mangle_ipv4(p->skb,DNS_FIX_HDR_SIZE,p->query.length, 
-	    to_insert, get_len_qfmt(to_insert) );
-	
+	    to_insert, get_len_qfmt(to_insert));
+	udp_set_length( p);
+
+
 	if( (result == 1) && (type == REWRITE_R) ){
+	   bytes = analyse_answer_for_rewrite_compression(p);
 	  /*On décale les octets de RAPPEL si c'est une réponse*/
-        move_rappel_bytes(p,to_insert);
+        move_all_rappel_bytes(p,to_insert, bytes);
+        free(bytes);
         return 1;
 	}
 	return result;
@@ -175,6 +223,7 @@ int rewrite_dns_response(dnspacket* packet, unsigned char* query,
 	struct iphdr *iph	    = NULL;
 	void *ntree_finalnode	= NULL;
 	char *ipaddress         = NULL;
+	int ret;
 	
 	finalrewrite    = calloc(253,sizeof(char));
 	to_insert		= calloc(253,sizeof(char));
@@ -210,17 +259,18 @@ int rewrite_dns_response(dnspacket* packet, unsigned char* query,
 	if(data) {
 	     strtodns_qfmt(data->rewrited,to_insert);
 	     packet->nb_q_rewrited += 1;
-	     return replace_query(packet,to_insert,REWRITE_R);
+	     ret = replace_query(packet,to_insert,REWRITE_R);
 	}
 	else {
 	    SLOGL_vprint(SLOGL_LVL_INFO,
         "[worker %d, ID %s] Impossible de trouver la query d'origine.",
          ME->number, packet->transaction_id);
+         ret = -1;
 	}
 	
     free(finalrewrite);
 	free(to_insert);
-    return -1;
+    return ret;
 }
 
 

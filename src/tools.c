@@ -11,6 +11,37 @@
 #include <arpa/inet.h>
 
 
+
+
+static char hex [] = { '0', '1', '2', '3', '4', '5', '6', '7',
+                        '8', '9' ,'A', 'B', 'C', 'D', 'E', 'F' };
+ 
+/**
+ * CONVERT_INT_TO_HEX
+ * Convertit un entier en hexadecimal
+ */
+int convert_int_to_hex(unsigned int num, char* buff)
+{
+    int len=0,k=0;
+    do
+    {
+        buff[len] = hex[num&0xF];
+        len++;
+        num>>=4;
+    }while(num!=0);
+    
+    for(;k<len/2;k++)
+    {
+        buff[k]         ^= buff[len-k-1];
+        buff[len-k-1]   ^= buff[k];
+        buff[k]         ^= buff[len-k-1];
+    }
+
+    buff[len]='\0';
+    return len;
+}
+
+
 /** 
  * get_n_bits_from_uint32t
  * renvoie n bits d'un entier de 32 bits

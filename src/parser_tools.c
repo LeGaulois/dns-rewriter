@@ -92,6 +92,8 @@ void strtostr_replace(char* regex, char* replacement, char* search_in, char* wri
 		write_to[depart+i] = replacement[i];
 	}
 }
+
+
 void strtodns_qfmt(char* finalrewrite, char* to_insert) {
 	char *pt = NULL;
 	pt = finalrewrite;
