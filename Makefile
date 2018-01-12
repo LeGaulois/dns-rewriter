@@ -9,7 +9,7 @@ test_hashtable: hash dns_t list
 	$(CC) $(CFLAGS) -lm -lcrypto hash.o dns_translation.o list.o test/hashtable/main.c -o test/hashtable/hashtable
 
 all: gestiondroits dnsparser dnsrewriter parsertools interceptor controller dns_t list logger configfile worker treebinary iptools tools hash
-	$(CC) $(CFLAGS) gestiondroits.o interceptor.o dns_translation.o list.o  ntree_binary.o configfile.o workers.o iptools.o hash.o tools.o logger.o controller.o dnsparser.o dnsrewriter.o parser_tools.o -lnftnl -lm -lcrypto -lpthread -lrt -lconfig -lmnl -lcap -lnetfilter_queue src/main.c -o dns-rewriter
+	$(CC) $(CFLAGS) gestiondroits.o interceptor.o dns_translation.o list.o  ntree_binary.o configfile.o workers.o iptools.o hash.o tools.o logger.o controller.o dnsparser.o dnsrewriter.o parser_tools.o -lnftnl -lm -lcrypto -lpthread -lrt -lconfig  -lcap -lnetfilter_queue src/main.c -o dns-rewriter
 
 
 dnsparser:

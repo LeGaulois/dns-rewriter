@@ -7,7 +7,6 @@
 #include <stdbool.h>
 #include <arpa/inet.h>
 
-#include <libmnl/libmnl.h>
 #include <linux/netfilter.h>
 #include <linux/netfilter/nfnetlink.h>
 

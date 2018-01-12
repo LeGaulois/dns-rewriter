@@ -1,6 +1,9 @@
 #ifndef DNSPARSER_H
 #define DNSPARSER_H
 
+#include <stdbool.h>
+
+
 #define UDP_HDR_SIZE 8
 #define DNS_FIX_HDR_SIZE 12
 /*

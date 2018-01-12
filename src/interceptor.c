@@ -6,13 +6,13 @@
 #include <time.h>
 #include <arpa/inet.h>
 #include <signal.h>
+#include <stdbool.h>
 
 #include <linux/netfilter.h>
 #include <linux/netfilter/nfnetlink.h>
 
 #include <linux/types.h>
 #include <linux/netfilter/nfnetlink_queue.h>
-#include <libmnl/libmnl.h>
 #include <libnetfilter_queue/libnetfilter_queue.h>
 #include <libnetfilter_queue/libnetfilter_queue_ipv4.h>
 #include <libnetfilter_queue/libnetfilter_queue_udp.h>
